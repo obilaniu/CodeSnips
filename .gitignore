@@ -1,0 +1,22 @@
+# Ignored whole directories
+build
+install
+3rdparty
+
+# Ignored file extensions
+**/*.[oa]
+**/*.so
+**/*.lib
+**/*.exe
+**/*.hdf5
+**/*.h5
+**/*.pyc
+**/*.bak
+**/*.png
+**/*.jpg
+**/*.jpeg
+**/*.JPG
+**/*.JPEG
+
+# Must not ignore Meson build files.
+!**/meson.build
