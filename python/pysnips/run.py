@@ -133,10 +133,10 @@ class Train(Subcommand):
 	
 	@classmethod
 	def run(cls, d):
-		if not os.path.isdir(d.workdir):
-			os.mkdir(d.workdir)
+		if not os.path.isdir(d.workDir):
+			os.mkdir(d.workDir)
 		
-		logDir = os.path.join(d.workdir, "logs")
+		logDir = os.path.join(d.workDir, "logs")
 		if not os.path.isdir(logDir):
 			os.mkdir(logDir)
 		
@@ -149,7 +149,7 @@ class Train(Subcommand):
 		defltLogger          .setLevel     (cls.LOGLEVELS[d.loglevel])
 		defltLogger          .addHandler   (stdoutLogSHandler)
 		
-		trainLogFilename  = os.path.join(d.workdir, "logs", "train.txt")
+		trainLogFilename  = os.path.join(d.workDir, "logs", "train.txt")
 		trainLogFHandler  = L.FileHandler  (trainLogFilename, "a", "UTF-8", delay=True)
 		trainLogFHandler     .setLevel     (cls.LOGLEVELS[d.loglevel])
 		trainLogFHandler     .setFormatter (logFormatter)
@@ -157,7 +157,7 @@ class Train(Subcommand):
 		trainLogger          .setLevel     (cls.LOGLEVELS[d.loglevel])
 		trainLogger          .addHandler   (trainLogFHandler)
 		
-		entryLogFilename  = os.path.join(d.workdir, "logs", "entry.txt")
+		entryLogFilename  = os.path.join(d.workDir, "logs", "entry.txt")
 		entryLogFHandler  = L.FileHandler  (entryLogFilename, "a", "UTF-8", delay=True)
 		entryLogFHandler     .setLevel     (cls.LOGLEVELS[d.loglevel])
 		entryLogFHandler     .setFormatter (logFormatter)
