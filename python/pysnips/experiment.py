@@ -46,6 +46,9 @@ class Experiment(object):
 		self.mkdirp(self.workDir)
 		self.mkdirp(self.snapDir)
 		self.mkdirp(self.tempDir)
+		
+		self.__dict__.update(dict(filter(lambda k: not k[0].startswith("__"),
+		                                 kwargs.iteritems())))
 	
 	
 	# Fundamental properties
