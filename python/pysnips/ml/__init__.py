@@ -13,4 +13,4 @@ __all__ = []
 # Other Imports
 #
 
-import experiment, loop
+import crc32c, experiment, loop, nanoemitter
