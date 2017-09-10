@@ -17,9 +17,9 @@ class Experiment(object):
 	The hierarchical organization of files within an experiment is as follows:
 	
 		Experiment
-		*   datadir/                   | The folder where the datasets are found and loaded from.
-		*   tempdir/                   | A folder on the local disk for temporary files.
-		*   workdir/                   | The main working directory.
+		*   dataDir/                   | The folder where the datasets are found and loaded from.
+		*   tempDir/                   | A folder on the local disk for temporary files.
+		*   workDir/                   | The main working directory.
 			->  snapshot/              | Snapshot directory
 				-> <#>/                | Snapshot numbered <#>
 					->  *.hdf5, ...    | Data files and suchlike.
@@ -35,17 +35,12 @@ class Experiment(object):
 	
 	def __init__(self,
 	             workDir=".",
-	             dataDir=".",
-	             tempDir=".",
 	             *args, **kwargs):
 		self.__workDir = os.path.abspath(workDir)
-		self.__dataDir = os.path.abspath(dataDir)
-		self.__tempDir = os.path.abspath(tempDir)
 		self.__ready   = False
 		
 		self.mkdirp(self.workDir)
 		self.mkdirp(self.snapDir)
-		self.mkdirp(self.tempDir)
 		
 		self.__dict__.update(dict(filter(lambda k: not k[0].startswith("__"),
 		                                 kwargs.iteritems())))
@@ -54,10 +49,6 @@ class Experiment(object):
 	# Fundamental properties
 	@property
 	def workDir(self): return self.__workDir
-	@property
-	def dataDir(self): return self.__dataDir
-	@property
-	def tempDir(self): return self.__tempDir
 	@property
 	def snapDir(self):
 		return os.path.join(self.workDir, "snapshot")
@@ -115,13 +106,21 @@ class Experiment(object):
 	#
 	
 	def load(self, path):
-		"""Load mutable state from given path.
+		"""
+		Load state from given path.
 		
-		Returns `self`."""
+		Restores the experiment to a state as close as possible to the one
+		the experiment was in at the moment of the dump() that generated the
+		checkpoint with the given `path`.
+		
+		Returns `self` afterwards.
+		
+		"""
 		return self
 	
 	def dump(self, path):
-		"""Dump mutable state to given path.
+		"""
+		Dump state to given path.
 		
 		The state can be saved as either
 		- A file with exactly the name `path` or
@@ -132,7 +131,20 @@ class Experiment(object):
 		by os.path.basename(path) will be the number this snapshot will be
 		be assigned, and it is equal to self.nextSnapshotNum.
 		
-		Returns `self`."""
+		Returns `self`.
+		
+		"""
+		
+		self.mkdirp(path)
+		with open(os.path.join(path, "README.txt"), "w") as f:
+			f.write("You should override Experiment.dump(self, path) and "+
+			        "Experiment.load(self, path)\nfor your needs. The format "+
+			        "of the checkpoint is entirely up to the implementer.\n"+
+			        "Both methods return `self` afterwards. The "+
+			        "documentation for both methods is\nbelow:\n\n\n\n"+
+			        "def dump(self, path):\n\n"+self.dump.__doc__+"\n\n"+
+			        "def load(self, path):\n\n"+self.load.__doc__+"\n\n")
+		
 		return self
 	
 	def fromScratch(self):
