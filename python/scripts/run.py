@@ -7,6 +7,7 @@ import argparse                             as Ap
 import logging                              as L
 import numpy                                as np
 import os, pdb, sys
+from   pysnips.ml.argparseactions import OptimizerAction
 import time
 
 __version__ = "0.0.0"
@@ -108,9 +109,8 @@ class Train(Subcommand):
 		    choices=["modrelu"],
 		    help="Advanced Activation.")
 		optp = argp.add_argument_group("Optimizers", "Tunables for all optimizers")
-		optp.add_argument("--optimizer", "--opt",   default="nag",              type=str,
-		    choices=["sgd", "nag", "adam", "rmsprop"],
-		    help="Optimizer selection.")
+		optp.add_argument("--optimizer", "--opt", action=OptimizerAction,
+		    type=str, default="nag", help="Optimizer selection.")
 		optp.add_argument("--clipnorm", "--cn",     default=1.0,                type=float,
 		    help="The norm of the gradient will be clipped at this magnitude.")
 		optp.add_argument("--clipval",  "--cv",     default=1.0,                type=float,
@@ -119,17 +119,8 @@ class Train(Subcommand):
 		    help="L1 penalty.")
 		optp.add_argument("--l2",                   default=0,                  type=float,
 		    help="L2 penalty.")
-		optp.add_argument("--lr",                   default=1e-3,               type=float,
-		    help="Master learning rate for optimizers.")
-		optp.add_argument("--momentum", "--mom",    default=0.9,                type=float,
-		    help="Momentum for optimizers supporting momentum.")
 		optp.add_argument("--decay",                default=0,                  type=float,
 		    help="Learning rate decay for optimizers.")
-		optp = argp.add_argument_group("Adam", "Tunables for Adam optimizer")
-		optp.add_argument("--beta1",                default=0.9,                type=float,
-		    help="Beta1 for Adam.")
-		optp.add_argument("--beta2",                default=0.999,              type=float,
-		    help="Beta2 for Adam.")
 	
 	@classmethod
 	def run(cls, d):
