@@ -3,6 +3,7 @@
 # Imports
 import argparse as Ap
 import ast
+import re
 
 
 #
@@ -25,21 +26,68 @@ class OptimizerAction(Ap.Action):
 		#
 		split  = values.split(":", 1)
 		name   = split[0].strip()
-		rest   = split[1].split(",") if len(split) == 2 else []
+		rest   = split[1] if len(split) == 2 else ""
 		args   = []
 		kwargs = {}
 		
-		for r in rest:
-			s    = r.split("=", 1)
-			s[0] = s[0].strip()
-			if   len(s) == 1:
+		def carveRest(s, sep):
+			quotepairs = {"'": "'", "\"": "\"", "{":"}", "[":"]", "(":")"}
+			val   = ""
+			quote = ""
+			prevC = ""
+			for i, c in enumerate(s):
+				if quote:
+					if   c == quote[-1]  and prevC != "\\":
+						val    += c
+						prevC   = ""
+						quote   = quote[:-1]
+					elif c in quotepairs and prevC != "\\":
+						val    += c
+						prevC   = ""
+						quote  += quotepairs[c]
+					elif prevC == "\\":
+						val     = val[:-1]+c
+						prevC   = ""
+					else:
+						val    += c
+						prevC   = c
+				else:
+					if   c == sep:
+						break
+					elif c in quotepairs and prevC != "\\":
+						val    += c
+						prevC   = ""
+						quote  += quotepairs[c]
+					elif prevC == "\\":
+						val     = val[:-1]+c
+						prevC   = ""
+					else:
+						val    += c
+						prevC   = c
+				
+			return val, s[i+1:]
+		
+		while rest:
+			positionalVal, positionalRest = carveRest(rest, ",")
+			keywordKey,    keywordRest    = carveRest(rest, "=")
+			
+			#
+			# If the distance to the first "=" (or end-of-string) is STRICTLY
+			# shorter than the distance to the first ",", we have found a
+			# keyword argument.
+			#
+			
+			if len(keywordKey)<len(positionalVal):
+				key       = re.sub("\\s+", "", keywordKey)
+				val, rest = carveRest(keywordRest, ",")
+				try:    kwargs[key] = ast.literal_eval(val)
+				except: kwargs[key] = val
+			else:
 				if len(kwargs) > 0:
 					raise ValueError("Positional optimizer argument \""+r+"\" found after first keyword argument!")
-				args += [ast.literal_eval(s[0])]
-			else:
-				s[1] = s[1].strip()
-				try:    kwargs[s[0]] = ast.literal_eval(s[1])
-				except: kwargs[s[0]] = s[1]
+				val, rest = positionalVal, positionalRest
+				try:    args += [ast.literal_eval(val)]
+				except: args += [val]
 		
 		#
 		# Parse argument string according to optimizer
@@ -52,7 +100,7 @@ class OptimizerAction(Ap.Action):
 			ns.__dict__.update(OptimizerAction.filterAdam(*args, **kwargs))
 		elif name in ["rmsprop"]:
 			ns.__dict__.update(OptimizerAction.filterRmsprop(*args, **kwargs))
-		elif name in ["yfin", "yellowfin"]:
+		elif name in ["yf", "yfin", "yellowfin"]:
 			ns.__dict__.update(OptimizerAction.filterYellowfin(*args, **kwargs))
 	
 	@staticmethod
