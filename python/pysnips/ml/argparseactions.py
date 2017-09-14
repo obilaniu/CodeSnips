@@ -160,7 +160,6 @@ class OptimizerAction(Ap.Action):
 		mom   = float(mom)
 		beta  = float(beta)
 		curvwindowwidth = int(curvwindowwidth)
-		eps   = float(eps)
 		
 		d = locals()
 		d["name"] = "yellowfin"
