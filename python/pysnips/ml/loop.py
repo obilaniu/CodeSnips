@@ -216,11 +216,11 @@ class CallbackLinefeed(Callback):
 # Master training loop
 #
 
-def loop(callbacks, userDict={}):
-	userDict["std/loop/state"   ] = userDict.get("std/loop/state",    "anteTrain")
-	userDict["std/loop/batchNum"] = userDict.get("std/loop/batchNum", 0)
-	userDict["std/loop/epochNum"] = userDict.get("std/loop/epochNum", 0)
-	userDict["std/loop/stepNum" ] = userDict.get("std/loop/stepNum",  0)
+def loop(callbacks, d={}):
+	d["std/loop/state"   ] = d.get("std/loop/state",    "anteTrain")
+	d["std/loop/batchNum"] = d.get("std/loop/batchNum", 0)
+	d["std/loop/epochNum"] = d.get("std/loop/epochNum", 0)
+	d["std/loop/stepNum" ] = d.get("std/loop/stepNum",  0)
 	
 	
 	if not isinstance(callbacks, (Callback, list)):
@@ -232,60 +232,60 @@ def loop(callbacks, userDict={}):
 	
 	
 	def getState():
-		return userDict["std/loop/state"]
+		return d["std/loop/state"]
 	def setState(state):
-		userDict["std/loop/state"]     = state
+		d["std/loop/state"]     = state
 	def updBatch():
-		userDict["std/loop/batchNum"] += 1
-		userDict["std/loop/stepNum" ] += 1
+		d["std/loop/batchNum"] += 1
+		d["std/loop/stepNum" ] += 1
 	def updEpoch():
-		userDict["std/loop/epochNum"] += 1
-		userDict["std/loop/batchNum"]  = 0
+		d["std/loop/epochNum"] += 1
+		d["std/loop/batchNum"]  = 0
 	def attemptEpoch():
-		epochMax = userDict.get("std/loop/epochMax", None)
-		return epochMax is None or userDict["std/loop/epochNum"] < epochMax
+		epochMax = d.get("std/loop/epochMax", None)
+		return epochMax is None or d["std/loop/epochNum"] < epochMax
 	def attemptBatch():
-		batchMax = userDict.get("std/loop/batchMax", None)
-		return batchMax is None or userDict["std/loop/batchNum"] < batchMax
+		batchMax = d.get("std/loop/batchMax", None)
+		return batchMax is None or d["std/loop/batchNum"] < batchMax
 	
 	
 	while True:
 		if   getState() in ["anteTrain", None]:
-			pass;   callbacks.anteTrain(userDict);               setState("anteEpoch");
+			pass;   callbacks.anteTrain(d);               setState("anteEpoch");
 		elif getState() in ["anteEpoch"]:
 			try:
 				if attemptEpoch():
-					callbacks.anteEpoch(userDict);               setState("anteBatch");
+					callbacks.anteEpoch(d);               setState("anteBatch");
 				else:
 					raise StopIteration()
-			except  StopIteration as si:                         setState("postTrain");
+			except  StopIteration as si:                  setState("postTrain");
 		elif getState() in ["anteBatch"]:
 			try:
 				if attemptBatch():
-					callbacks.anteBatch(userDict);               setState("execBatch");
+					callbacks.anteBatch(d);               setState("execBatch");
 				else:
 					raise StopIteration()
-			except  StopIteration as si:                         setState("postEpoch");
+			except  StopIteration as si:                  setState("postEpoch");
 		elif getState() in ["execBatch"]:
-			pass;   callbacks.execBatch(userDict);               setState("postBatch");
+			pass;   callbacks.execBatch(d);               setState("postBatch");
 		elif getState() in ["postBatch"]:
-			pass;   callbacks.postBatch(userDict);               setState("finiBatch");
+			pass;   callbacks.postBatch(d);               setState("finiBatch");
 		elif getState() in ["finiBatch"]:
-			pass;   callbacks.finiBatch(userDict);  updBatch();  setState("anteBatch");
+			pass;   callbacks.finiBatch(d);  updBatch();  setState("anteBatch");
 		elif getState() in ["postEpoch"]:
-			pass;   callbacks.postEpoch(userDict);               setState("finiEpoch");
+			pass;   callbacks.postEpoch(d);               setState("finiEpoch");
 		elif getState() in ["finiEpoch"]:
-			pass;   callbacks.finiEpoch(userDict);  updEpoch();  setState("anteEpoch");
+			pass;   callbacks.finiEpoch(d);  updEpoch();  setState("anteEpoch");
 		elif getState() in ["postTrain"]:
-			pass;   callbacks.postTrain(userDict);               setState("finiTrain");
+			pass;   callbacks.postTrain(d);               setState("finiTrain");
 		elif getState() in ["finiTrain"]:
-			pass;   callbacks.finiTrain(userDict);               setState("doneTrain");
+			pass;   callbacks.finiTrain(d);               setState("doneTrain");
 		elif getState() in ["doneTrain"]:
 			break
 		
-		callbacks.preempt(userDict)
+		callbacks.preempt(d)
 	
-	return userDict
+	return d
 
 
 
