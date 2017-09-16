@@ -117,7 +117,7 @@ class YellowFin(TO.Optimizer):
 		# update of that ring buffer's min/max.
 		#
 		if "gL2SqRB"      not in self.__dict__:
-			self.gL2SqRB = gL2Sq
+			self.gL2SqRB = T.zeros_like(gL2Sq) + gL2Sq
 		elif len(self.gL2SqRB) < self.curvWW:
 			self.gL2SqRB = T.cat([self.gL2SqRB, gL2Sq])
 		else:
