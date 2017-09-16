@@ -55,12 +55,12 @@ class YellowFin(TO.Optimizer):
 		self.beta         = float(beta)     # beta
 		self.curvWW       = int(curvWW)     # curvature window width
 		self.nesterov     = bool(nesterov)  # Nesterov-like momentum update?
-		self.step         = 0               # Global Step Count
+		self.stepCount    = 0               # Global Step Count
 		
 		super(YellowFin, self).__init__(params, {})
 	
 	def step(self, closure=None):
-		loss = loss if closure is None else closure()
+		loss = None if closure is None else closure()
 		
 		#
 		#     Gradient Analysis
@@ -121,9 +121,10 @@ class YellowFin(TO.Optimizer):
 		elif len(self.gL2SqRB) < self.curvWW:
 			self.gL2SqRB = T.cat([self.gL2SqRB, gL2Sq])
 		else:
-			self.gL2SqRB[self.step % self.curvWW] = gL2Sq
-		self.gL2SqMinEWMA.lerp_(self.gL2SqRB.min(0),          1-self.beta)
-		self.gL2SqMaxEWMA.lerp_(self.gL2SqRB.max(0),          1-self.beta)
+			insertPoint = self.stepCount % self.curvWW
+			self.gL2SqRB[insertPoint:insertPoint+1] = gL2Sq
+		self.gL2SqMinEWMA.lerp_(self.gL2SqRB.min(0)[0],       1-self.beta)
+		self.gL2SqMaxEWMA.lerp_(self.gL2SqRB.max(0)[0],       1-self.beta)
 		#
 		#     Algorithm 4: Distance to Optimum
 		#
@@ -174,10 +175,10 @@ class YellowFin(TO.Optimizer):
 				p = param.data
 				v = S["v"]
 				
-				v.mul_(self.mu).addcmul_(1.0, self.alpha, g)
+				v.mul_(self.mu).addcmul_(-1.0, self.alpha, g)
 				self.mu   .lerp_(muUpd,    1-self.beta)
 				if self.nesterov:
-					p.addcmul_(1.0, self.mu, v).addcmul_(1.0, self.alpha, g)
+					p.addcmul_(1.0, self.mu, v).addcmul_(-1.0, self.alpha, g)
 				else:
 					p.add_(v)
 				self.alpha.lerp_(alphaUpd, 1-self.beta)
@@ -187,7 +188,7 @@ class YellowFin(TO.Optimizer):
 		#
 		# (necessary for correct functioning of ring buffer)
 		#
-		self.step += 1
+		self.stepCount += 1
 		
 		
 		# Return loss
