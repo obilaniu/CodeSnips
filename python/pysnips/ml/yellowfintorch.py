@@ -57,8 +57,6 @@ class YellowFin(TO.Optimizer):
 		self.nesterov     = bool(nesterov)  # Nesterov-like momentum update?
 		self.step         = 0               # Global Step Count
 		
-		self.DEWMA        = 0.0             # D
-		
 		super(YellowFin, self).__init__(params, {})
 	
 	def step(self, closure=None):
