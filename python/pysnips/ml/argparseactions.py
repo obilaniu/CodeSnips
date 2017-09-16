@@ -149,17 +149,17 @@ class OptimizerAction(Ap.Action):
 		d["name"] = "rmsprop"
 		return d
 	@staticmethod
-	def filterYellowfin(lr=1.0, mom=0.0, beta=0.999, curvwindowwidth=20, nesterov=False):
-		assert isinstance(lr,       (int, long, float)) and lr    >  0
-		assert isinstance(mom,      (int, long, float)) and mom   >= 0 and mom   < 1
-		assert isinstance(beta,     (int, long, float)) and beta  >= 0 and beta <= 1
-		assert isinstance(curvwindowwidth, (int, long)) and curvwindowwidth >= 3
+	def filterYellowfin(lr=1.0, mom=0.0, beta=0.999, curvWW=20, nesterov=False):
+		assert isinstance(lr,       (int, long, float)) and lr     >  0
+		assert isinstance(mom,      (int, long, float)) and mom    >= 0 and mom   < 1
+		assert isinstance(beta,     (int, long, float)) and beta   >= 0 and beta <= 1
+		assert isinstance(curvWW,   (int, long))        and curvWW >= 3
 		assert isinstance(nesterov, bool)
 		
-		lr    = float(lr)
-		mom   = float(mom)
-		beta  = float(beta)
-		curvwindowwidth = int(curvwindowwidth)
+		lr     = float(lr)
+		mom    = float(mom)
+		beta   = float(beta)
+		curvWW = int(curvWW)
 		
 		d = locals()
 		d["name"] = "yellowfin"
