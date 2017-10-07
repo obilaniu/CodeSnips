@@ -37,7 +37,6 @@ class Experiment(object):
 	             workDir=".",
 	             *args, **kwargs):
 		self.__workDir = os.path.abspath(workDir)
-		self.__ready   = False
 		
 		self.mkdirp(self.workDir)
 		self.mkdirp(self.snapDir)
@@ -73,9 +72,6 @@ class Experiment(object):
 	@property
 	def nextSnapshotNum(self):
 		return self.latestSnapshotNum+1
-	@property
-	def ready(self):
-		return self.__ready
 	
 	
 	# General utilities. Not to be overriden.
@@ -88,10 +84,6 @@ class Experiment(object):
 	
 	
 	# Private functions
-	def __markReady(self):
-		self.__ready = True
-		return self
-	
 	def __markLatest(self, n):
 		"""Atomically reroute the "latest" symlink in the working directory so
 		that it points to the given snapshot number."""
@@ -155,7 +147,7 @@ class Experiment(object):
 		assert(not os.path.lexists(self.latestLink) or
 		           os.path.islink (self.latestLink))
 		self.rmR(self.latestLink)
-		return self.__markReady()
+		return self
 	
 	def fromSnapshot(self, path):
 		"""Start an experiment from a snapshot.
@@ -165,14 +157,13 @@ class Experiment(object):
 		
 		Returns `self`."""
 		
-		return self.__markReady()
+		return self
 	
 	def run(self):
 		"""Run a readied experiment.
 		
 		Returns `self`."""
 		
-		assert(self.ready)
 		return self
 	
 	
