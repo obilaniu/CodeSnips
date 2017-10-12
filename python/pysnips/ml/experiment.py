@@ -126,17 +126,6 @@ class Experiment(object):
 		Returns `self`.
 		
 		"""
-		
-		self.mkdirp(path)
-		with open(os.path.join(path, "README.txt"), "w") as f:
-			f.write("You should override Experiment.dump(self, path) and "+
-			        "Experiment.load(self, path)\nfor your needs. The format "+
-			        "of the checkpoint is entirely up to the implementer.\n"+
-			        "Both methods return `self` afterwards. The "+
-			        "documentation for both methods is\nbelow:\n\n\n\n"+
-			        "def dump(self, path):\n\n"+self.dump.__doc__+"\n\n"+
-			        "def load(self, path):\n\n"+self.load.__doc__+"\n\n")
-		
 		return self
 	
 	def fromScratch(self):
