@@ -126,6 +126,7 @@ class Experiment(object):
 		Returns `self`.
 		
 		"""
+		self.mkdirp(path)
 		return self
 	
 	def fromScratch(self):
@@ -168,12 +169,12 @@ class Experiment(object):
 			self.rmR(nextSnapshotPath)
 		return self.dump(nextSnapshotPath).__markLatest(nextSnapshotNum)
 	
-	def rollback(self, n="latest"):
+	def rollback(self, n=None):
 		"""Roll back the experiment to the given snapshot number.
 		
 		Returns `self`."""
 		
-		if n == "latest":
+		if n is None:
 			if self.haveSnapshots(): return self.fromSnapshot(self.latestLink)
 			else:                    return self.fromScratch()
 		elif isinstance(n, int):
@@ -181,39 +182,76 @@ class Experiment(object):
 			assert(os.path.isdir(loadSnapshotPath))
 			return self.__markLatest(n).fromSnapshot(loadSnapshotPath)
 		else:
-			raise ValueError("n must be int, or \"latest\"!")
+			raise ValueError("n must be int, or None!")
 	
 	def haveSnapshots(self):
 		"""Check if we have at least one snapshot."""
 		return os.path.islink(self.latestLink) and os.path.isdir(self.latestLink)
 	
-	def purge(self, keep="latest"):
-		"""Purge snapshot directory of all snapshots except a given list or set
-		of them.
+	def purge(self, strategy="klogn", keep=None, deleteNonSnapshots=False, **kwargs):
+		"""Purge snapshot directory of snapshots according to some strategy,
+		preserving however a given "keep" list or set of snapshot numbers.
+		
+		Available strategies are:
+		    "lastk":  Keep last k snapshots (Default: k=10)
+		    "klogn":  Keep every snapshot in the last k, 2k snapshots in
+		              the last k**2, 3k snapshots in the last k**3, ...
+		              (Default: k=4. k must be > 1).
 		
 		Returns `self`."""
 		
-		assert(isinstance(keep, (list, set)) or keep=="latest")
-		keep = [] if keep=="latest" else keep
+		assert(isinstance(keep, (list, set))  or  keep is None)
+		keep = set(keep or [])
+		if   strategy in ["lastk", None]:
+			keep.update(self.strategyLastK(self.latestSnapshotNum, **kwargs))
+		elif strategy in ["klogn"]:
+			keep.update(self.strategyKLogN(self.latestSnapshotNum, **kwargs))
+		
 		
 		snaps, nonSnaps = self.listSnapshotDir(self.snapDir)
-		snaps.difference_update(keep)
+		snapshotRemoveList = set(snaps)
+		if deleteNonSnapshots:
+			snapshotRemoveList |= set(nonSnaps)
+		snapshotRemoveList.difference_update(keep)
 		
-		snapsToDelete = snaps|nonSnaps
-		for s in snapsToDelete:
+		
+		for s in snapshotRemoveList:
 			snapPath = os.path.join(self.snapDir, str(s))
 			if(os.path.islink  (self.latestLink) and
 			   os.path.samefile(self.latestLink, snapPath)):
-				pass # Don't delete this snapshot, since it's the "latest"
+				# Don't delete this snapshot, since it's the current one
+				pass
 			else:
 				self.rmR(snapPath)
 		
 		return self
 	
 	
+	# Snapshot strategies
+	@classmethod
+	def strategyLastK(kls, n, k=10):
+		return filter(lambda x:x>=0, range(n, n-k, -1))
+	
+	@classmethod
+	def strategyKLogN(kls, n, k=4):
+		assert(k>1)
+		s = set([n])
+		i = 0
+		
+		while k**i <= n:
+			s.update(range(n, n-k*k**i, -k**i))
+			i += 1
+			n -= n % k**i
+		
+		return filter(lambda x:x>=0, s)
+	
+	
 	# Filesystem Utilities
 	@classmethod
 	def mkdirp(kls, path):
+		"""`mkdir -p path/to/folder`. Creates a folder and all parent
+		directories if they don't already exist."""
+		
 		dirStack = []
 		while not os.path.isdir(path):
 			dirStack += [os.path.basename(path)]
