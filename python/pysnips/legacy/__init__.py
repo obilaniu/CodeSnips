@@ -13,4 +13,3 @@ __all__ = []
 # Other Imports
 #
 
-import optimizers, parameters
