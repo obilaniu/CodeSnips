@@ -303,29 +303,28 @@ def progbar(barLen, barFrac, delim=True):
 	else:
 		raise InvalidArgument("barFrac must be a floating-point number in the range [0.0, 1.0] "\
 		                      " or an integer in the range [0, barLen]!")
-	b  = barLen-a
 	
-	s  = u"\u2588"*a + u" "*b
-	if delim:
-		s = u"\u23B9" + s + u"\u23B8"
-	return s
+	b = barLen-a
+	
+	if   b == 0: s = "="*barLen
+	elif a == 0: s = ">" + " "*(barLen-1)
+	else:        s = "="*(a-1) + ">" + " "*b
+	return       "["+s+"]" if delim else s
 
-def epochprogbar(barLen, epochNum, batchNum, stepNum, numBatches, delim=True):
-	if   numBatches <= 0:
-		barFrac  = 1.0 - abs(float(batchNum % (2*barLen))/barLen - 1.0)  # Oscillate
-		barSep   = u"+"
-		strFrac  = u"{:07d}".format(batchNum)
+def epochprogbar(l, e, b, s, Nb, delim=True):
+	if   Nb <= 0:
+		f   = 1.0 - abs(float(b % (2*l))/l - 1.0)  # Oscillate
+		fs  = "{:07d}".format(b)
+		sep = ":"
 	else:
-		barFrac  = max(0.0, min(1.0, float(batchNum)/numBatches))        # True fraction
-		barSep   = u"."
-		strFrac  = u"{:.7f}".format(barFrac)
-		if strFrac.startswith(u"1"): strFrac  = u"DONE   "
-		else:                        strFrac  = strFrac[-7:]
-	s        = u""
-	s       += u"Step {:9d} (Epoch {:4d}{:s}{:s})".format(stepNum, epochNum, barSep, strFrac)
-	s       += progbar(barLen, barFrac, delim)
+		f   = max(0.0, min(1.0, float(b)/Nb))      # True fraction
+		fs  = "{:.7f}".format(f)
+		fs  = "DONE   " if fs.startswith("1") else fs[-7:]
+		sep = "."
 	
-	return s
+	bar = progbar(l, f, delim)
+	
+	return "Epoch {e:4d}{sep:s}{fs:s}  {bar:s}".format(**locals())
 
 
 #
@@ -378,7 +377,7 @@ def loadNumpyPRNGState(stream, **kwargs):
 
 # Short testcase
 if __name__ == "__main__":
-	slp  = CallbackLambda(execBatch=lambda self,d:time.sleep(0.01))
+	slp  = CallbackLambda(execBatch=lambda self,d:time.sleep(1e-2))
 	prog = CallbackProgbar(50)
 	lf   = CallbackLinefeed()
 	fl   = CallbackFlush()
