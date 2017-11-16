@@ -1,13 +1,31 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
+/* Includes */
+#define  PY_SSIZE_T_CLEAN  /* So we get Py_ssize_t args. */
+#include <Python.h>        /* Because of "reasons", the Python header must be first. */
+#include <stdint.h>
 
 
-#
-# CRC32C Castagnoli Implementation
-#
 
-class CRC32C(object):
-	CRC32CLUT = [
+/* Defines */
+#if __SSE4_2__ && __GNUC__>=4 && 0 //Not implemented yet
+#define USE_ACCEL_CRC32C 1
+#else 
+#define USE_ACCEL_CRC32C 0
+#endif
+
+
+
+/* Extern "C" Guard */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+
+/* Data Structure Definitions */
+#if !USE_ACCEL_CRC32C
+#warning "Compiler does not support SSE 4.2 acceleration of CRC32. Defaulting to software implementation."
+
+static const uint32_t CRC32CLUT[256] = {
 	0x00000000, 0xf26b8303, 0xe13b70f7, 0x1350f3f4, 0xc79a971f, 0x35f1141c, 0x26a1e7e8, 0xd4ca64eb,
 	0x8ad958cf, 0x78b2dbcc, 0x6be22838, 0x9989ab3b, 0x4d43cfd0, 0xbf284cd3, 0xac78bf27, 0x5e133c24,
 	0x105ec76f, 0xe235446c, 0xf165b798, 0x030e349b, 0xd7c45070, 0x25afd373, 0x36ff2087, 0xc494a384,
@@ -40,18 +58,101 @@ class CRC32C(object):
 	0x69e9f0d5, 0x9b8273d6, 0x88d28022, 0x7ab90321, 0xae7367ca, 0x5c18e4c9, 0x4f48173d, 0xbd23943e,
 	0xf36e6f75, 0x0105ec76, 0x12551f82, 0xe03e9c81, 0x34f4f86a, 0xc69f7b69, 0xd5cf889d, 0x27a40b9e,
 	0x79b737ba, 0x8bdcb4b9, 0x988c474d, 0x6ae7c44e, 0xbe2da0a5, 0x4c4623a6, 0x5f16d052, 0xad7d5351,
-	]
+};
+#endif
+
+
+
+/* C Function Forward Declarations */
+uint32_t  doCRC32C(uint32_t    crc,
+                   const char* buf,
+                   Py_ssize_t  len);
+
+
+
+/* Python Method Forward Declarations */
+PyObject* crc32c_update(PyObject* self, PyObject* args);
+
+
+
+/* C Function Definitions */
+uint32_t  doCRC32C(uint32_t    crc,
+                   const char* buf,
+                   Py_ssize_t  len){
+	Py_ssize_t i;
 	
-	def __init__(self, crc=None):
-		self.init(crc)
-	def init(self, crc=None):
-		self.crc = int(~0 if crc is None else crc) & 0xFFFFFFFF
-		return self
-	def update(self, data):
-		assert isinstance(data, bytearray)
-		for b in data:
-			self.crc = (self.crc>>8) ^ self.CRC32CLUT[(self.crc^b) & 0xFF]
-		return self
-	def finalize(self):
-		return ~self.crc & 0xFFFFFFFF
+	if(!buf || !len){
+		return crc;
+	}
+	
+#if USE_ACCEL_CRC32C
+#error "CRC32C acceleration with SSE 4.2 not yet implemented!"
+#else
+	for(i=0;i<len;i++){
+		crc = (crc >> 8) ^ CRC32CLUT[(crc^buf[i]) & 0xFFU];
+	}
+#endif
+	
+	return crc;
+}
+
+
+
+/* Python Method Definitions */
+PyObject* crc32c_update(PyObject* self, PyObject* args){
+	PyObject*          ret;
+	unsigned long      arg_crc32c = -1;
+	const char*        arg_bufptr = NULL;
+	Py_ssize_t         arg_buflen = -1;
+	unsigned long long arg_len    = -1;
+	unsigned long long arg_off    =  0;
+	
+	
+	if(!PyArg_ParseTuple(args, "|kz#KK",
+	                     &arg_crc32c,
+	                     &arg_bufptr, &arg_buflen,
+	                     &arg_len,
+	                     &arg_off)){
+		PyErr_SetString(PyExc_RuntimeError, "Failed to parse arguments!");
+		return NULL;
+	}
+	if      (arg_len != -1 && arg_off+arg_len > arg_buflen){
+		PyErr_SetString(PyExc_ValueError,   "Buffer overflow (offset + length beyond end of buffer)!");
+		return NULL;
+	}else if(arg_len == -1 && arg_off > arg_buflen){
+		PyErr_SetString(PyExc_ValueError,   "Buffer overflow (offset greater than buffer length)!");
+		return NULL;
+	}else if(arg_len == -1){
+		arg_len = arg_buflen-arg_off;
+	}
+	
+	ret = PyInt_FromLong(doCRC32C(arg_crc32c,
+	                              arg_bufptr+arg_off,
+	                              arg_len));
+	if(!ret){
+		PyErr_SetString(PyExc_RuntimeError, "Failed to allocate Python int!");
+	}
+	return ret;
+}
+
+
+/* Module Methods */
+static PyMethodDef crc_native_methods[] = {
+	{"crc32c_update", (PyCFunction)crc32c_update, 1,
+	 "CRC32C (Castagnoli) update function. Signature: crc32c_update(crc32c=-1, buffer=None, len=-1, offset=0)"},
+};
+
+
+
+/* Module Initialization */
+PyMODINIT_FUNC initcrc_native(void){
+	PyObject *m = Py_InitModule("crc_native", crc_native_methods);
+	if(!m){return;}
+}
+
+
+/* End Extern "C" Guard */
+#ifdef __cplusplus
+}
+#endif
 

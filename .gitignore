@@ -19,6 +19,9 @@ install
 ## Python
 **.pyc
 **.pyo
+**.egg-info
+**.egg
+dist
 
 ## Binary Data Files
 **.hdf5

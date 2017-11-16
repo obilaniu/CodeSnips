@@ -5,7 +5,7 @@
 # String list, naming the submodules to be imported on import *
 #
 
-__all__ = ["yellowfin"]
+__all__ = ["crc"]
 
 
 
@@ -13,6 +13,4 @@ __all__ = ["yellowfin"]
 # Other Imports
 #
 
-from . import yellowfin
-
-from .yellowfin import YellowFin
+from . import crc

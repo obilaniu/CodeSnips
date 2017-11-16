@@ -5,7 +5,7 @@
 # String list, naming the submodules to be imported on import *
 #
 
-__all__ = []
+__all__ = ["discrete", "ml"]
 
 
 
@@ -13,3 +13,4 @@ __all__ = []
 # Other Imports
 #
 
+from . import discrete, ml
