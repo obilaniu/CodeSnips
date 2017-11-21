@@ -126,11 +126,18 @@ PyObject* crc32c_update(PyObject* self, PyObject* args){
 		arg_len = arg_buflen-arg_off;
 	}
 	
-	ret = PyInt_FromLong(doCRC32C(arg_crc32c,
-	                              arg_bufptr+arg_off,
-	                              arg_len));
+#if PY_MAJOR_VERSION >= 3
+	ret = PyLong_FromLong(doCRC32C(arg_crc32c,
+	                               arg_bufptr+arg_off,
+	                               arg_len));
+#else
+	ret = PyInt_FromLong (doCRC32C(arg_crc32c,
+	                               arg_bufptr+arg_off,
+	                               arg_len));
+#endif
+	
 	if(!ret){
-		PyErr_SetString(PyExc_RuntimeError, "Failed to allocate Python int!");
+		PyErr_SetString(PyExc_RuntimeError, "Failed to allocate Python long!");
 	}
 	return ret;
 }
@@ -144,11 +151,50 @@ static PyMethodDef crc_native_methods[] = {
 
 
 
-/* Module Initialization */
+/**
+ * Module Initialization
+ */
+
+static const char CRC_NATIVE_MODULE_DOC[] = "Native CRC32C Implementation.";
+#if PY_MAJOR_VERSION >= 3
+
+/**
+ * Python 3
+ */
+
+static PyModuleDef crc_native_module_def = {
+	PyModuleDef_HEAD_INIT,
+	"crc_native",          /* m_name */
+	"Native CRC32C",       /* m_doc */
+	-1,                    /* m_size */
+	crc_native_methods,    /* m_methods */
+	NULL,                  /* m_reload */
+	NULL,                  /* m_traverse */
+	NULL,                  /* m_clear */
+	NULL,                  /* m_free */
+};
+
+PyMODINIT_FUNC PyInit_crc_native(void){
+	PyObject* m = PyModule_Create(&crc_native_module_def);
+	if(!m){
+		return NULL;
+	}else{
+		return m;
+	}
+}
+#else
+
+/**
+ * Python 2
+ */
+
 PyMODINIT_FUNC initcrc_native(void){
-	PyObject *m = Py_InitModule("crc_native", crc_native_methods);
+	PyObject* m = Py_InitModule3("crc_native",
+	                             crc_native_methods,
+	                             CRC_NATIVE_MODULE_DOC);
 	if(!m){return;}
 }
+#endif
 
 
 /* End Extern "C" Guard */
