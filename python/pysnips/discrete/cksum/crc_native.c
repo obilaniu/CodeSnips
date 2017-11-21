@@ -101,6 +101,7 @@ uint32_t  doCRC32C(uint32_t    crc,
 /* Python Method Definitions */
 PyObject* crc32c_update(PyObject* self, PyObject* args){
 	PyObject*          ret;
+	unsigned long      crc32c;
 	unsigned long      arg_crc32c = -1;
 	const char*        arg_bufptr = NULL;
 	Py_ssize_t         arg_buflen = -1;
@@ -126,14 +127,13 @@ PyObject* crc32c_update(PyObject* self, PyObject* args){
 		arg_len = arg_buflen-arg_off;
 	}
 	
+	crc32c = doCRC32C(arg_crc32c,
+	                  arg_bufptr+arg_off,
+	                  arg_len);
 #if PY_MAJOR_VERSION >= 3
-	ret = PyLong_FromLong(doCRC32C(arg_crc32c,
-	                               arg_bufptr+arg_off,
-	                               arg_len));
+	ret = PyLong_FromLong(crc32c);
 #else
-	ret = PyInt_FromLong (doCRC32C(arg_crc32c,
-	                               arg_bufptr+arg_off,
-	                               arg_len));
+	ret = PyInt_FromLong (crc32c);
 #endif
 	
 	if(!ret){
