@@ -63,6 +63,9 @@ dist
 **.swp
 **~
 
+## TensorBoard
+*tfevents*
+
 
 # Must not ignore Meson build files.
 !**/meson.build
