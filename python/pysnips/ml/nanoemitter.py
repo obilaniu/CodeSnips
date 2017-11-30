@@ -697,11 +697,12 @@ class RecordEmitter(object):
 
 # Test
 if __name__ == "__main__":
+	np.random.seed(0)
 	with open("test.tfevents", "ab") as f:
 		r = RecordEmitter(f)
 		
 		e = Event()
-		e.wall_time     = time.time()
+		e.wall_time     = 0
 		e.file_version  = "brain.Event:2"
 		
 		r.emitEvent(e)
@@ -716,7 +717,7 @@ if __name__ == "__main__":
 			buckets = [np.finfo("float64").min] + [-l for l in buckets[::-1]] + [0] + buckets + [np.finfo("float64").max]
 			
 			e = Event()
-			e.wall_time     = time.time()
+			e.wall_time     = 0
 			e.step          = i
 			e.summary       = Summary()
 			e.summary.value = [Value(), Value()]

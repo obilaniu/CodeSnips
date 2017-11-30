@@ -6,6 +6,7 @@
 
 import numpy                   as np
 import struct
+import sys
 import time
 
 from   pebble              import (PebbleMessage,
@@ -17,14 +18,78 @@ from   pebble              import (PebbleMessage,
 
 
 
+__all__ = ["TfLogLevel", "TfSessionStatus", "TfDataType", "TfColorSpace",
+           "TfEvent", "TfSummary", "TfLogMessage", "TfSessionLog",
+           "TfTaggedRunMetadata", "TfValue", "TfSummaryMetadata",
+           "TfPluginData", "TfImage", "TfHistogram", "TfAudio", "TfTensor",
+           "TfTensorShape", "TfDim"]
+
+
 #
-# Message Hierarchy as defined by various .proto files in TensorFlow's public
-# Github repository, in particular
-#
-#     https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/util/event.proto
+# "Enums" with constants defined by TF
 #
 
-class Event(PebbleMessage):
+class TfLogLevel          (object):
+	UNKNOWN      =  0
+	DEBUGGING    = 10
+	INFO         = 20
+	WARN         = 30
+	ERROR        = 40
+	FATAL        = 50
+	
+	def __init__(self): raise
+
+class TfSessionStatus     (object):
+	UNSPECIFIED  =  0
+	START        =  1
+	STOP         =  2
+	CHECKPOINT   =  3
+	
+	def __init__(self): raise
+
+class TfDataType          (object):
+	INVALID      =  0  # Not a legal value for DataType.  Used to indicate a DataType field has not been set.
+	FLOAT        =  1  # Data types that all computation devices are expected to be
+	DOUBLE       =  2  # capable to support.
+	INT32        =  3
+	UINT8        =  4
+	INT16        =  5
+	INT8         =  6
+	STRING       =  7
+	COMPLEX64    =  8  # Single-precision complex
+	INT64        =  9
+	BOOL         = 10
+	QINT8        = 11  # Quantized int8
+	QUINT8       = 12  # Quantized uint8
+	QINT32       = 13  # Quantized int32
+	BFLOAT16     = 14  # Float32 truncated to 16 bits.  Only for cast ops.
+	QINT16       = 15  # Quantized int16
+	QUINT16      = 16  # Quantized uint16
+	UINT16       = 17
+	COMPLEX128   = 18  # Double-precision complex
+	HALF         = 19
+	RESOURCE     = 20
+	VARIANT      = 21  # Arbitrary C++ data types
+	UINT32       = 22
+	UINT64       = 23
+	
+	def __init__(self): raise
+
+class TfColorSpace        (object):
+	GRAYSCALE        = 1
+	GRAYSCALE_ALPHA  = 2
+	RGB              = 3
+	RGBA             = 4
+	DIGITAL_YUV      = 5
+	BGRA             = 6
+	
+	def __init__(self): raise
+
+#
+# Message Hierarchy as defined by TF
+#
+
+class TfEvent             (PebbleMessage):
 	def __init__(self, step=0, wallTime=None,
 	             fileVersion=None,
 	             graphDef=None,
@@ -44,6 +109,7 @@ class Event(PebbleMessage):
 		elif taggedRunMetadata is not None: self.tagged_run_metadata = taggedRunMetadata
 		elif metaGraphDef      is not None: self.meta_graph_def      = bytearray(metaGraphDef)
 		else: raise ValueError("The event is empty!")
+	
 	def asByteArray(self):
 		b = bytearray()
 		if   hasattr(self, "wall_time"):            b += enc_tagvalue("double",  1, self.wall_time)
@@ -59,57 +125,71 @@ class Event(PebbleMessage):
 		else: raise ValueError("The event is empty!")
 		
 		return b
+	
 	def asRecordByteArray(self):
 		payload = self.asByteArray()
 		header  = enc_fixed64(len(payload))
 		
-		return header + tfcrc32c(header) + data + tfcrc32c(data)
-class Summary(PebbleMessage):
+		return header + enc_fixed32(tfcrc32c(header)) + payload + enc_fixed32(tfcrc32c(payload))
+
+class TfSummary           (PebbleMessage):
 	def __init__(self, values={}):
 		self.value = [v for k,v in sorted(values.iteritems())]
+	
 	def asByteArray(self):
 		b = bytearray()
 		if   hasattr(self, "value"):
 			for v in self.value:                    b += enc_tagvalue("message", 1, v)
 		return b
+	
 	def asEvent(self, **kwargs):
-		return Event(summary=self, **kwargs)
-class LogMessage(PebbleMessage):
-	def __init__(self, message, level=0):
+		return TfEvent(summary=self, **kwargs)
+
+class TfLogMessage        (PebbleMessage):
+	def __init__(self, message, level=TfLogLevel.UNKNOWN):
 		self.message = str(message)
 		self.level   = int(level)
+	
 	def asByteArray(self):
 		b = bytearray()
 		if   hasattr(self, "level"):                b += enc_tagvalue("enum",    1, self.level)
 		if   hasattr(self, "message"):              b += enc_tagvalue("string",  2, self.message)
 		return b
+	
 	def asEvent(self, **kwargs):
-		return Event(logMessage=self, **kwargs)
-class SessionLog(PebbleMessage):
+		return TfEvent(logMessage=self, **kwargs)
+
+class TfSessionLog        (PebbleMessage):
 	def __init__(self, status, msg=None, path=None):
 		self.status = status
 		if msg  is not None: self.msg             = str(msg)
 		if path is not None: self.checkpoint_path = str(path)
+	
 	def asByteArray(self):
 		b = bytearray()
 		if   hasattr(self, "status"):               b += enc_tagvalue("enum",    1, self.status)
 		if   hasattr(self, "checkpoint_path"):      b += enc_tagvalue("string",  2, self.checkpoint_path)
 		if   hasattr(self, "msg"):                  b += enc_tagvalue("string",  3, self.msg)
 		return b
+	
 	def asEvent(self, **kwargs):
-		return Event(sessionLog=self, **kwargs)
-class TaggedRunMetadata(PebbleMessage):
+		return TfEvent(sessionLog=self, **kwargs)
+
+class TfTaggedRunMetadata (PebbleMessage):
 	def __init__(self, tag, runMetadata):
 		self.tag          = str(tag)
 		self.run_metadata = bytearray(runMetadata)
+	
 	def asByteArray(self):
 		b = bytearray()
 		if   hasattr(self, "tag"):                  b += enc_tagvalue("string",  1, self.tag)
 		if   hasattr(self, "run_metadata"):         b += enc_tagvalue("bytes",   2, self.run_metadata)
 		return b
+	
 	def asEvent(self, **kwargs):
-		return Event(taggedRunMetadata=self, **kwargs)
-class Value(PebbleMessage):
+		return TfEvent(taggedRunMetadata=self, **kwargs)
+
+class TfValue             (PebbleMessage):
 	def __init__(self, tag,
 	             simpleValue=None,
 	             image=None,
@@ -125,6 +205,7 @@ class Value(PebbleMessage):
 		elif audio       is not None: self.audio        = audio
 		elif tensor      is not None: self.tensor       = tensor
 		else: raise ValueError("The value is empty!")
+	
 	def asByteArray(self):
 		b = bytearray()
 		if   hasattr(self, "tag"):                  b += enc_tagvalue("string",  1, self.tag)
@@ -138,39 +219,37 @@ class Value(PebbleMessage):
 		
 		return b
 
-
-class SummaryMetadata(PebbleMessage):
+class TfSummaryMetadata   (PebbleMessage):
 	def __init__(self, displayName=None, summaryDescription=None, pluginData=None):
 		if displayName        is not None: self.display_name        = str(displayName)
 		if summaryDescription is not None: self.summary_description = str(summaryDescription)
 		if pluginData         is not None: self.plugin_data         = pluginData
+	
 	def asByteArray(self):
 		b = bytearray()
 		if   hasattr(self, "plugin_data"):          b += enc_tagvalue("message", 1, self.plugin_data)
 		if   hasattr(self, "display_name"):         b += enc_tagvalue("string",  2, self.display_name)
 		if   hasattr(self, "summary_description"):  b += enc_tagvalue("string",  3, self.summary_description)
 		return b
-class PluginData(PebbleMessage):
-	def __init__(self, pluginName, content):
+
+class TfPluginData        (PebbleMessage):
+	def __init__(self, pluginName=None, content=None):
 		if pluginName is not None: self.plugin_name = str(pluginName)
 		if content    is not None: self.content     = str(content)
+	
 	def asByteArray(self):
 		b = bytearray()
 		if   hasattr(self, "plugin_name"):          b += enc_tagvalue("string",  1, self.plugin_name)
 		if   hasattr(self, "content"):              b += enc_tagvalue("string",  2, self.content)
 		return b
-class SummaryDescription(PebbleMessage):
-	def __init__(self, typeHint=None):
-		if typeHint is not None: self.type_hint = str(typeHint)
-	def asByteArray(self):
-		b = bytearray()
-		if   hasattr(self, "type_hint"):            b += enc_tagvalue("string",  1, self.type_hint)
-		return b
 
-
-
-
-class Image(PebbleMessage):
+class TfImage             (PebbleMessage):
+	def __init__(self, height, width, colorspace, imageData):
+		self.height               = int(height)
+		self.width                = int(width)
+		self.colorspace           = int(colorspace)
+		self.encoded_image_string = bytearray(imageData)
+	
 	def asByteArray(self):
 		b = bytearray()
 		if   hasattr(self, "height"):               b += enc_tagvalue("int32",   1, self.height)
@@ -178,7 +257,34 @@ class Image(PebbleMessage):
 		if   hasattr(self, "colorspace"):           b += enc_tagvalue("int32",   3, self.colorspace)
 		if   hasattr(self, "encoded_image_string"): b += enc_tagvalue("bytes",   4, self.encoded_image_string)
 		return b
-class HistogramProto(PebbleMessage):
+	
+	def asValue(self, tag, metadata=None):
+		return TfValue(tag, image=self, metadata=metadata)
+
+class TfHistogram         (PebbleMessage):
+	def __init__(self, tensor, bins=None):
+		bins              = self.getDefaultBuckets() if bins is None else bins
+		
+		self.min_         = float(np.min(tensor))
+		self.max_         = float(np.max(tensor))
+		self.num          = float(np.prod(tensor.shape))
+		self.sum_         = float(np.sum(tensor.astype("float64")))
+		self.sum_squares  = float(np.sum(tensor.astype("float64")**2))
+		self.bucket_limit = bins[1:]
+		self.bucket       = np.histogram(tensor, bins)[0]
+	
+	@classmethod
+	def getDefaultBuckets(kls):
+		"""
+		Compute the default histogram buckets used by TF.
+		"""
+		buckets = []
+		lim     = 1e-12
+		while lim<1e20:
+			buckets += [lim]
+			lim     *= 1.1
+		return [np.finfo("float64").min] + [-l for l in buckets[::-1]] + [0] + buckets + [np.finfo("float64").max]
+	
 	def asByteArray(self):
 		b = bytearray()
 		if   hasattr(self, "min_"):                 b += enc_tagvalue("double",  1, self.min_)
@@ -195,7 +301,18 @@ class HistogramProto(PebbleMessage):
 			for d in self.bucket:                   c += enc_float64(float(d))
 			b                                         += enc_tagvalue("packed",  7, c)
 		return b
-class Audio(PebbleMessage):
+	
+	def asValue(self, tag, metadata=None):
+		return TfValue(tag, histo=self, metadata=metadata)
+
+class TfAudio             (PebbleMessage):
+	def __init__(self, sampleRate, numChannels, lengthFrames, audioData, contentType):
+		self.sample_rate          = sampleRate
+		self.num_channels         = numChannels
+		self.length_frames        = lengthFrames
+		self.encoded_audio_string = audioData
+		self.content_type         = contentType
+	
 	def asByteArray(self):
 		b = bytearray()
 		if   hasattr(self, "sample_rate"):          b += enc_tagvalue("float",   1, self.sample_rate)
@@ -204,7 +321,37 @@ class Audio(PebbleMessage):
 		if   hasattr(self, "encoded_audio_string"): b += enc_tagvalue("bytes",   4, self.encoded_audio_string)
 		if   hasattr(self, "content_type"):         b += enc_tagvalue("string",  5, self.content_type)
 		return b
-class TensorProto(PebbleMessage):
+	
+	def asValue(self, tag, metadata=None):
+		return Value(tag, audio=self, metadata=metadata)
+
+class TfTensor            (PebbleMessage):
+	def __init__(self, tensor, dimNames=None):
+		if      isinstance(tensor, np.ndarray):
+			#
+			# A numeric tensor of some kind
+			#
+			
+			tensor = tensor if tensor.flags.contiguous else tensor.copy('C')
+			
+			self.dtype          = convert_dtype_np2tf(tensor.dtype)
+			self.tensor_shape   = convert_shape_np2tf(tensor.shape, dimNames)
+			self.version_number = 0
+			self.tensor_content = bytearray(tensor.data)
+		else:
+			#
+			# A single string to encode as a tensor.
+			#
+			
+			if(sys.version_info[0] <  3 and isinstance(tensor, unicode) or
+			   sys.version_info[0] >= 3 and isinstance(tensor, str)):
+				tensor = tensor.encode("utf-8")
+			
+			self.dtype          = TfDataType.STRING
+			self.tensor_shape   = convert_shape_np2tf((1,), dimNames)
+			self.version_number = 0
+			self.tensor_content = bytearray(tensor)
+	
 	def asByteArray(self):
 		b = bytearray()
 		if   hasattr(self, "dtype"):                b += enc_tagvalue("enum",    1, self.dtype)
@@ -212,18 +359,14 @@ class TensorProto(PebbleMessage):
 		if   hasattr(self, "version_number"):       b += enc_tagvalue("int32",   3, self.version_number)
 		if   hasattr(self, "tensor_content"):       b += enc_tagvalue("bytes",   4, self.tensor_content)
 		return b
+	
+	def asValue(self, tag, metadata=None):
+		return TfValue(tag, tensor=self, metadata=metadata)
 
-
-class VariantTensorDataProto(PebbleMessage):
-	def asByteArray(self):
-		b = bytearray()
-		if   hasattr(self, "name"):                 b += enc_tagvalue("string",  1, self.name)
-		if   hasattr(self, "metadata"):             b += enc_tagvalue("bytes",   2, self.metadata)
-		if   hasattr(self, "tensors"):
-			for t in self.tensors:
-				b                                     += enc_tagvalue("message", 3, t)
-		return b
-class TensorShapeProto(PebbleMessage):
+class TfTensorShape       (PebbleMessage):
+	def __init__(self, dims):
+		self.dim = dims
+	
 	def asByteArray(self):
 		b = bytearray()
 		if   hasattr(self, "dim"):
@@ -231,22 +374,65 @@ class TensorShapeProto(PebbleMessage):
 				b                                     += enc_tagvalue("message", 2, d)
 		if   hasattr(self, "unknown_rank"):         b += enc_tagvalue("bool",    3, self.unknown_rank)
 		return b
-class Dim(PebbleMessage):
+
+class TfDim               (PebbleMessage):
+	def __init__(self, size, name=None):
+		self.size = size
+		if   name       is not None: self.name = name
+	
 	def asByteArray(self):
 		b = bytearray()
 		if   hasattr(self, "size"):                 b += enc_tagvalue("int64",   1, self.size)
 		if   hasattr(self, "name"):                 b += enc_tagvalue("string",  2, self.name)
 		return b
-class ResourceHandleProto(PebbleMessage):
-	def asByteArray(self):
-		b = bytearray()
-		if   hasattr(self, "device"):               b += enc_tagvalue("string",  1, self.device)
-		if   hasattr(self, "container"):            b += enc_tagvalue("string",  2, self.container)
-		if   hasattr(self, "name"):                 b += enc_tagvalue("string",  3, self.name)
-		if   hasattr(self, "hash_code"):            b += enc_tagvalue("uint64",  4, self.hash_code)
-		if   hasattr(self, "maybe_type_name"):      b += enc_tagvalue("string",  5, self.maybe_type_name)
-		return b
 
+
+
+def convert_dtype_np2tf(dtype):
+	"""Convert a numpy array's dtype to the enum DataType code used by TF."""
+	
+	dtype  = str(dtype)
+	dtype  = {
+		"invalid":     TfDataType.INVALID,
+		"float32":     TfDataType.FLOAT,
+		"float64":     TfDataType.DOUBLE,
+		"int32":       TfDataType.INT32,
+		"uint8":       TfDataType.UINT8,
+		"int16":       TfDataType.INT16,
+		"int8":        TfDataType.INT8,
+		"string":      TfDataType.STRING,
+		"complex64":   TfDataType.COMPLEX64,
+		"int64":       TfDataType.INT64,
+		"bool":        TfDataType.BOOL,
+		# 11-16: Quantized datatypes that don't exist in numpy...
+		"uint16":      TfDataType.UINT16,
+		"complex128":  TfDataType.COMPLEX128,
+		"float16":     TfDataType.HALF,
+		# 20-21: TF-specific datatypes...
+		"uint32":      TfDataType.UINT32,
+		"uint64":      TfDataType.UINT64,
+	}[dtype]
+	return dtype
+
+def convert_dims_np2tf (xShape, dimNames=None):
+	if dimNames is not None:
+		assert len(dimNames) == len(xShape)
+		dimNames = [str(x) for x in dimNames]
+		return [TfDim(size, name) for size, name in zip(xShape, dimNames)]
+	else:
+		return [TfDim(size)       for size       in xShape]
+
+def convert_shape_np2tf(xShape, dimNames=None):
+	return TfTensorShape(convert_dims_np2tf(xShape, dimNames))
+
+def convert_metadata   (displayName        = None,
+                        summaryDescription = None,
+                        pluginName         = None,
+                        content            = None):
+	pluginData = None if (pluginName is None and content is None) else TfPluginData(pluginName, content)
+	metadata   = None if (displayName is None and summaryDescription is None and pluginData is None) else \
+	             TfSummaryMetadata(displayName, summaryDescription, pluginData)
+	return metadata
 
 
 """
@@ -255,10 +441,10 @@ A tiny module to emit TFEvents files.
 TFEvents files are a concatenation of "records":
 
 	Record:
-		uint64_t dataLen
-		uint32_t dataLen_maskCRC32C
+		uint64_t dataLen                // Little-Endian
+		uint32_t dataLen_maskCRC32C     // Little-Endian
 		uint8_t  data[dataLen]
-		uint32_t data_maskCRC32C
+		uint32_t data_maskCRC32C        // Little-Endian
 	(repeat unlimited number of times)
 
 
@@ -278,6 +464,112 @@ and is finalized by bit-reversal.
 The payload of a Record is a single protobuf Event, defined with all
 submessage below (shamelessly ripped off from TensorFlow Github). The first
 Record of a file must always contain Event(file_Version="brain.Event:2")
+
+
+The TFEvents protocol is defined by the contents of the TensorFlow .proto files
+below, organized by the hierarchy of their inclusion, namely:
+
+	https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/util/event.proto
+		https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/framework/summary.proto
+			https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/framework/tensor.proto
+				https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/framework/resource_handle.proto
+				https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/framework/tensor_shape.proto
+				https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/framework/types.proto
+
+The entities that exist in those files are below, organized by the hierarchy of
+their inclusion (irrelevant/obsolete members removed):
+
+	Event
+		double  wall_time
+		int         step
+		string      file_version
+		LogMessage  log_message
+			enum        level
+				UNKNOWN:     0
+				DEBUGGING:  10
+				INFO:       20
+				WARN:       30
+				ERROR:      40
+				FATAL:      50
+			string      message
+		SessionLog  session_log
+			enum        status
+				UNSPECIFIED: 0
+				START:       1
+				STOP:        2
+				CHECKPOINT:  3
+			string      checkpoint_path
+			string      msg
+		Summary     summary
+			repeated Value value
+				string           tag
+				SummaryMetadata  metadata
+					PluginData
+						string plugin_name
+						bytes  content
+					string display_name
+					string summary_description
+				float            simple_value
+				Image            image
+					int   height
+					int   width
+					int   colorspace
+						grayscale:        1
+						grayscale+alpha:  2
+						RGB:              3
+						RGBA:             4
+						DIGITAL_YUV:      5
+						BGRA:             6
+					bytes data
+				HistogramProto   histo
+					double           min
+					double           max
+					double           num
+					double           sum
+					repeated packed double sum_squares
+					repeated packed double bucket_limit
+				Audio            audio
+					float            sample_rate   // In Hz
+					int              num_channels
+					int              length_franes
+					bytes            data
+					string           content_type
+				TensorProto      tensor
+					enum DataType    dtype
+						DT_INVALID = 0;// Not a legal value for DataType.  Used to indicate a DataType field has not been set.
+						DT_FLOAT = 1;  // Data types that all computation devices are expected to be
+						DT_DOUBLE = 2; // capable to support.
+						DT_INT32 = 3;
+						DT_UINT8 = 4;
+						DT_INT16 = 5;
+						DT_INT8 = 6;
+						DT_STRING = 7;
+						DT_COMPLEX64 = 8;  // Single-precision complex
+						DT_INT64 = 9;
+						DT_BOOL = 10;
+						DT_QINT8 = 11;     // Quantized int8
+						DT_QUINT8 = 12;    // Quantized uint8
+						DT_QINT32 = 13;    // Quantized int32
+						DT_BFLOAT16 = 14;  // Float32 truncated to 16 bits.  Only for cast ops.
+						DT_QINT16 = 15;    // Quantized int16
+						DT_QUINT16 = 16;   // Quantized uint16
+						DT_UINT16 = 17;
+						DT_COMPLEX128 = 18;  // Double-precision complex
+						DT_HALF = 19;
+						DT_RESOURCE = 20;
+						DT_VARIANT = 21;  // Arbitrary C++ data types
+						DT_UINT32 = 22;
+						DT_UINT64 = 23;
+					TensorShapeProto tensor_shape
+						repeated Dim dim
+							int    size
+							string name
+						bool unknown_rank // == 0 for all cases of concern to us
+					int          version_number   // == 0
+					bytes        tensor_content   // Row-major (C-contiguous) order
+
+
+
 
 
 // Protocol buffer representing an event that happened during
@@ -353,6 +645,7 @@ message TaggedRunMetadata {
   bytes run_metadata = 2;
 }
 
+
 // Metadata associated with a series of Summary data
 message SummaryDescription {
   // Hint on how plugins should process the data in this series.
@@ -387,7 +680,7 @@ message SummaryMetadata {
 
     // The content to store for the plugin. The best practice is for this to be
     // a binary serialized protocol buffer.
-    string content = 2;
+    bytes content = 2;
   }
 
   // Data that associates a summary with a certain plugin.
@@ -533,6 +826,12 @@ message TensorProto {
 
   // DT_VARIANT
   repeated VariantTensorDataProto variant_val = 15;
+
+  // DT_UINT32
+  repeated uint32 uint32_val = 16 [packed = true];
+
+  // DT_UINT64
+  repeated uint64 uint64_val = 17 [packed = true];
 };
 
 // Protocol buffer representing the serialization format of DT_VARIANT tensors.
@@ -545,64 +844,27 @@ message VariantTensorDataProto {
   repeated TensorProto tensors = 3;
 }
 
-// LINT.IfChange
-enum DataType {
-  // Not a legal value for DataType.  Used to indicate a DataType field
-  // has not been set.
-  DT_INVALID = 0;
+// Protocol buffer representing a handle to a tensorflow resource. Handles are
+// not valid across executions, but can be serialized back and forth from within
+// a single run.
+message ResourceHandleProto {
+  // Unique name for the device containing the resource.
+  string device = 1;
 
-  // Data types that all computation devices are expected to be
-  // capable to support.
-  DT_FLOAT = 1;
-  DT_DOUBLE = 2;
-  DT_INT32 = 3;
-  DT_UINT8 = 4;
-  DT_INT16 = 5;
-  DT_INT8 = 6;
-  DT_STRING = 7;
-  DT_COMPLEX64 = 8;  // Single-precision complex
-  DT_INT64 = 9;
-  DT_BOOL = 10;
-  DT_QINT8 = 11;     // Quantized int8
-  DT_QUINT8 = 12;    // Quantized uint8
-  DT_QINT32 = 13;    // Quantized int32
-  DT_BFLOAT16 = 14;  // Float32 truncated to 16 bits.  Only for cast ops.
-  DT_QINT16 = 15;    // Quantized int16
-  DT_QUINT16 = 16;   // Quantized uint16
-  DT_UINT16 = 17;
-  DT_COMPLEX128 = 18;  // Double-precision complex
-  DT_HALF = 19;
-  DT_RESOURCE = 20;
-  DT_VARIANT = 21;  // Arbitrary C++ data types
+  // Container in which this resource is placed.
+  string container = 2;
 
-  // TODO(josh11b): DT_GENERIC_PROTO = ??;
-  // TODO(jeff,josh11b): DT_UINT64?  DT_UINT32?
+  // Unique name of this resource.
+  string name = 3;
 
-  // Do not use!  These are only for parameters.  Every enum above
-  // should have a corresponding value below (verified by types_test).
-  DT_FLOAT_REF = 101;
-  DT_DOUBLE_REF = 102;
-  DT_INT32_REF = 103;
-  DT_UINT8_REF = 104;
-  DT_INT16_REF = 105;
-  DT_INT8_REF = 106;
-  DT_STRING_REF = 107;
-  DT_COMPLEX64_REF = 108;
-  DT_INT64_REF = 109;
-  DT_BOOL_REF = 110;
-  DT_QINT8_REF = 111;
-  DT_QUINT8_REF = 112;
-  DT_QINT32_REF = 113;
-  DT_BFLOAT16_REF = 114;
-  DT_QINT16_REF = 115;
-  DT_QUINT16_REF = 116;
-  DT_UINT16_REF = 117;
-  DT_COMPLEX128_REF = 118;
-  DT_HALF_REF = 119;
-  DT_RESOURCE_REF = 120;
-  DT_VARIANT_REF = 121;
-}
-// LINT.ThenChange(https://www.tensorflow.org/code/tensorflow/c/c_api.h,https://www.tensorflow.org/code/tensorflow/go/tensor.go)
+  // Hash code for the type of the resource. Is only valid in the same device
+  // and in the same execution.
+  uint64 hash_code = 4;
+
+  // For debug-only, the name of the type pointed to by this handle, if
+  // available.
+  string maybe_type_name = 5;
+};
 
 // Dimensions of a tensor.
 message TensorShapeProto {
@@ -640,25 +902,64 @@ message TensorShapeProto {
   bool unknown_rank = 3;
 };
 
-// Protocol buffer representing a handle to a tensorflow resource. Handles are
-// not valid across executions, but can be serialized back and forth from within
-// a single run.
-message ResourceHandleProto {
-  // Unique name for the device containing the resource.
-  string device = 1;
+// LINT.IfChange
+enum DataType {
+  // Not a legal value for DataType.  Used to indicate a DataType field
+  // has not been set.
+  DT_INVALID = 0;
 
-  // Container in which this resource is placed.
-  string container = 2;
+  // Data types that all computation devices are expected to be
+  // capable to support.
+  DT_FLOAT = 1;
+  DT_DOUBLE = 2;
+  DT_INT32 = 3;
+  DT_UINT8 = 4;
+  DT_INT16 = 5;
+  DT_INT8 = 6;
+  DT_STRING = 7;
+  DT_COMPLEX64 = 8;  // Single-precision complex
+  DT_INT64 = 9;
+  DT_BOOL = 10;
+  DT_QINT8 = 11;     // Quantized int8
+  DT_QUINT8 = 12;    // Quantized uint8
+  DT_QINT32 = 13;    // Quantized int32
+  DT_BFLOAT16 = 14;  // Float32 truncated to 16 bits.  Only for cast ops.
+  DT_QINT16 = 15;    // Quantized int16
+  DT_QUINT16 = 16;   // Quantized uint16
+  DT_UINT16 = 17;
+  DT_COMPLEX128 = 18;  // Double-precision complex
+  DT_HALF = 19;
+  DT_RESOURCE = 20;
+  DT_VARIANT = 21;  // Arbitrary C++ data types
+  DT_UINT32 = 22;
+  DT_UINT64 = 23;
 
-  // Unique name of this resource.
-  string name = 3;
+  // Do not use!  These are only for parameters.  Every enum above
+  // should have a corresponding value below (verified by types_test).
+  DT_FLOAT_REF = 101;
+  DT_DOUBLE_REF = 102;
+  DT_INT32_REF = 103;
+  DT_UINT8_REF = 104;
+  DT_INT16_REF = 105;
+  DT_INT8_REF = 106;
+  DT_STRING_REF = 107;
+  DT_COMPLEX64_REF = 108;
+  DT_INT64_REF = 109;
+  DT_BOOL_REF = 110;
+  DT_QINT8_REF = 111;
+  DT_QUINT8_REF = 112;
+  DT_QINT32_REF = 113;
+  DT_BFLOAT16_REF = 114;
+  DT_QINT16_REF = 115;
+  DT_QUINT16_REF = 116;
+  DT_UINT16_REF = 117;
+  DT_COMPLEX128_REF = 118;
+  DT_HALF_REF = 119;
+  DT_RESOURCE_REF = 120;
+  DT_VARIANT_REF = 121;
+  DT_UINT32_REF = 122;
+  DT_UINT64_REF = 123;
+}
 
-  // Hash code for the type of the resource. Is only valid in the same device
-  // and in the same execution.
-  uint64 hash_code = 4;
 
-  // For debug-only, the name of the type pointed to by this handle, if
-  // available.
-  string maybe_type_name = 5;
-};
 """
