@@ -327,18 +327,8 @@ class TfAudio             (PebbleMessage):
 
 class TfTensor            (PebbleMessage):
 	def __init__(self, tensor, dimNames=None):
-		if      isinstance(tensor, np.ndarray):
-			#
-			# A numeric tensor of some kind
-			#
-			
-			tensor = tensor if tensor.flags.contiguous else tensor.copy('C')
-			
-			self.dtype          = convert_dtype_np2tf(tensor.dtype)
-			self.tensor_shape   = convert_shape_np2tf(tensor.shape, dimNames)
-			self.version_number = 0
-			self.tensor_content = bytearray(tensor.data)
-		else:
+		if    (sys.version_info[0] <  3 and isinstance(tensor, (str, unicode)) or
+		       sys.version_info[0] >= 3 and isinstance(tensor, str)):
 			#
 			# A single string to encode as a tensor.
 			#
@@ -351,6 +341,17 @@ class TfTensor            (PebbleMessage):
 			self.tensor_shape   = convert_shape_np2tf((1,), dimNames)
 			self.version_number = 0
 			self.tensor_content = bytearray(tensor)
+		else:
+			#
+			# A numeric tensor of some kind
+			#
+			
+			tensor              = np.array(tensor)
+			self.dtype          = convert_dtype_np2tf(tensor.dtype)
+			self.tensor_shape   = convert_shape_np2tf(tensor.shape, dimNames)
+			self.version_number = 0
+			self.tensor_content = tensor.tobytes('C')
+		
 	
 	def asByteArray(self):
 		b = bytearray()
@@ -962,4 +963,14 @@ enum DataType {
 }
 
 
+
+
+
+
+
+
+TO BE LOOKED AT:
+	https://github.com/tensorflow/tensorboard/blob/master/tensorboard/plugins/projector/projector_config.proto
+	https://github.com/tensorflow/tensorboard/blob/master/tensorboard/plugins/custom_scalar/layout.proto
+	https://github.com/tensorflow/tensorboard/blob/master/tensorboard/plugins/pr_curve
 """
