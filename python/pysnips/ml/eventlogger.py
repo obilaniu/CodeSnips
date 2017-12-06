@@ -20,9 +20,12 @@ except ImportError:
 from   .tfevents       import *
 from   .tfevents       import convert_metadata
 
-__all__ = ["EventLogger", "NullEventLogger", "tagscope",
-           "logScalar", "logImage", "logAudio",   "logText",
-           "logTensor", "logHist",  "logMessage", "logSession",
+__all__ = ["EventLogger", "NullEventLogger", "tagscope", "getEventLogger",
+           "logScalar", "logScalars", "logImage",   "logAudio",   "logText",
+           "logTensor", "logHist",    "logMessage", "logSession",
+           "get_event_logger", "log_scalar", "log_scalars", "log_image",
+           "log_audio",        "log_text",   "log_tensor",  "log_hist",
+           "log_message",      "log_session",
            "TfLogLevel", "TfSessionStatus", "TfDataType", "TfColorSpace"]
 
 
@@ -35,35 +38,54 @@ class EventLogger(object):
 	Event logging to Protocol Buffers.
 	"""
 	
-	def __init__           (self, logDir, step=None, flushSecs=60.0, **kwargs):
+	def __init__           (self, logDir, step=None, flushSecs=60.0, flushBufSz=None, **kwargs):
+		# Training logistics-related
 		self._logDir       = str(logDir)
 		self._creationStep = step
 		self._currentStep  = 0 if step is None else int(self._creationStep)
-		self._flushSecs    = flushSecs
 		self._creationTime = time.time()
 		self._uuid         = uuid.uuid4()
 		self._metadata     = set()
 		self._values       = {}
 		self.__bytebuffer = bytearray()
-		self._lock         = threading.RLock()
-		self._tls          = threading.local()
-		self._isExiting    = False
-		
 		assert     os.path.isdir (self._logDir)
 		assert not os.path.isfile(self._logFilePath)
 		
-		self.__bytebuffer += TfEvent(step=self._currentStep, fileVersion="brain.Event:2").asRecordByteArray()
+		# Threading-related
+		self._flushSecs    = flushSecs
+		self._flushBufSz   = flushBufSz
+		self._flushThread  = None
+		self._cond         = threading.Condition()
+		self._tls          = threading.local()
+		
+		#
+		# Append the "file header" of sorts, consisting of the fileVersion event
+		# and possibly a TfSessionLog event.
+		#
+		# We avoid appendBuffer() because it will either flush or trigger the
+		# spawning of the flusher. There are two good reasons not to do it now:
+		#
+		# 1) We will possibly append two records (fileVersion and session log)
+		#    without the protection of the lock.
+		# 2) It may potentially trigger the first write and thus creation
+		#    of the log file; But if this logger doesn't end up getting used,
+		#    or doesn't have a chance to be used before a crash, there's no
+		#    point polluting the filesystem with embryonic, empty
+		#    tfevents files and slowing TB down.
+		#
+		self.__bytebuffer += TfEvent(step        = self._currentStep,
+		                             wallTime    = self._creationTime,
+		                             fileVersion = "brain.Event:2").asRecordByteArray()
 		if self._creationStep is not None:
-			self.__bytebuffer += TfSessionLog(TfSessionStatus.START,
-			                                  "Restarting...",
-			                                  self._logDir)           \
-			                     .asEvent(step=self._currentStep)     \
+			self.__bytebuffer += TfSessionLog(TfSessionStatus.START,      \
+			                                  "Restarting...",            \
+			                                  self._logDir)               \
+			                     .asEvent(step     = self._currentStep,   \
+			                              wallTime = self._creationTime)  \
 			                     .asRecordByteArray()
 	
 	def __del__            (self):
-		with self._lock:
-			self.flush()
-			self._isExiting = True
+		self.close()
 	
 	@property
 	def _logFileName       (self):
@@ -94,6 +116,12 @@ class EventLogger(object):
 			self.__tls._tagScopePath = []
 		return self.__tls._tagScopePath
 	
+	@property
+	def asynchronous       (self):
+		return (self._flushSecs is not None) and (self._flushSecs > 0.0)
+	@property
+	def overflowing        (self):
+		return (self._flushBufSz is not None) and (len(self.__bytebuffer) > self._flushBufSz)
 	@contextlib.contextmanager
 	def tagscope           (self, *groupNames):
 		"""
@@ -127,20 +155,16 @@ class EventLogger(object):
 		return tag
 	
 	@classmethod
-	def getDefault         (kls):
+	def getEventLogger     (kls):
 		"""
 		Return the default logger for the current thread.
 		
 		This will return the logger currently top-of-stack.
 		"""
 		
-		if not hasattr(EventLogger.__tls, "_loggerStack"):
-			EventLogger.__tls._loggerStack = []
-		
-		if kls.__tls._loggerStack:
-			return kls.__tls._loggerStack[-1]
-		else:
-			return NullEventLogger()
+		l = EventLogger.__tls._loggerStack = EventLogger.__tls.__dict__.get("_loggerStack", [])
+		return l[-1] if l else NullEventLogger()
+	
 	def __enter__          (self):
 		"""
 		Make this event logger the default logger for the current thread.
@@ -148,10 +172,8 @@ class EventLogger(object):
 		This is done by pushing it onto the stack of loggers.
 		"""
 		
-		if not hasattr(EventLogger.__tls, "_loggerStack"):
-			EventLogger.__tls._loggerStack = []
-		
-		EventLogger.__tls._loggerStack.append(self)
+		l = EventLogger.__tls._loggerStack = EventLogger.__tls.__dict__.get("_loggerStack", [])
+		l.append(self)
 		return self
 	def __exit__           (self, *exc):
 		"""
@@ -160,37 +182,71 @@ class EventLogger(object):
 		This is done by popping it from the stack of loggers on context exit.
 		"""
 		
-		EventLogger.__tls._loggerStack.pop()
+		EventLogger.__tls._loggerStack.pop().close()
 	
-	def _spawnDaemonThread (self):
+	def _spawnFlushThread  (self):
 		"""
-		Spawn the daemon thread, if it hasn't been spawned already, and if we
+		Spawn the flusher thread, if it hasn't been spawned already, and if we
 		have asked for asynchronous writing.
 		"""
 		
-		if self._flushSecs is not None:
-			with self._lock:
-				if not hasattr(self, "_daemonThread"):
-					self._daemonThread = threading.Thread(target=self._daemonRun)
-					self._daemonThread.daemon = True
-					self._daemonThread.start()
+		with self._cond:
+			if self.asynchronous and not self._flushThread:
+				#
+				# Flusher Thread run()
+				#
+				def flusher():
+					"""
+					Flusher thread implementation. Simply waits on the
+					condition and periodically flush to disk the buffer
+					contents.
+					
+					*MUST NOT* call close(), because it *WILL* lead to deadlock.
+					
+					On exit request, will indicate its own exit by destroying
+					the reference to itself in the EventLogger, and will then
+					notify all waiters before terminating.
+					"""
+					
+					thrd = threading.currentThread()
+					with self._cond:
+						while not thrd.isExiting:
+							self._cond.wait(self._flushSecs)
+							self.flush()
+						self._flushThread = None
+						self._cond.notifyAll()
+				
+				#
+				# Flusher Thread spawn process.
+				#
+				thrdName = "eventlogger-{:x}-flushThread".format(id(self))
+				self._flushThread = threading.Thread(target=flusher, name=thrdName)
+				self._flushThread.isExiting = False
+				self._flushThread.start()
+		
 		return self
 	
-	def _daemonRun         (self):
-		while True:
-			time.sleep(self._flushSecs)
-			with self._lock:
-				self.flush()
-				if self._isExiting:
-					del self._daemonThread
-					break
+	def close              (self):
+		"""
+		Close the summary writer.
+		
+		Specifically, causes the flusher thread to terminate, then wait for a
+		clean exit.
+		"""
+		
+		with self._cond:
+			while self._flushThread:
+				self._flushThread.isExiting = True
+				self._cond.notifyAll()
+				self._cond.wait()
+		return self.flush()
 	
 	def step               (self, step=None):
 		"""
 		Increment (or set) the global step number.
 		"""
 		
-		with self._lock:
+		with self._cond:
 			if step is None:
 				#
 				# Since the step number is being changed, enqueue all of the
@@ -219,13 +275,23 @@ class EventLogger(object):
 		
 		The only time the bytebuffer's size can change other than through this
 		method is when it is flushed and emptied periodically from within the
-		flush() method, which may be called either synchronously by the
-		log-generating thread, or asynchronously by the flushing thread.
+		flush() method, which may be called either synchronously by any thread,
+		or asynchronously by the flushing thread.
 		"""
 		
-		with self._lock:
+		with self._cond:
 			self.__bytebuffer += bytearray(b)
-			self._spawnDaemonThread()
+			if self.overflowing: self.flush()
+			else:                self._spawnFlushThread()
+		return self
+	
+	def appendEvent        (self, e):
+		"""
+		Append a TfEvent to the bytebuffer.
+		"""
+		
+		with self._cond:
+			self.appendBuffer(e.asRecordByteArray())
 		return self
 	
 	def appendSummary      (self):
@@ -234,11 +300,10 @@ class EventLogger(object):
 		from them and enqueue it for writeout, but do not flush the bytebuffer.
 		"""
 		
-		with self._lock:
+		with self._cond:
 			if self._values:
-				self.appendBuffer(TfSummary(self._values)
-				                  .asEvent(step=self._currentStep)
-				                  .asRecordByteArray())
+				self.appendEvent(TfSummary(self._values)
+				                 .asEvent(step=self._currentStep))
 				self._values = {}
 		return self
 	
@@ -258,10 +323,10 @@ class EventLogger(object):
 	
 	def flush              (self):
 		"""
-		Write out and flush the bytebuffer to disk.
+		Write out and flush the bytebuffer to disk synchronously.
 		"""
 		
-		with self._lock:
+		with self._cond:
 			self.appendSummary()
 			if self.__bytebuffer:
 				with open(self._logFilePath, "ab") as f:
@@ -280,16 +345,28 @@ class EventLogger(object):
 		metadata = convert_metadata(displayName, description, pluginName, pluginContent)
 		val      = TfValue(tag, simpleValue=float(scalar), metadata=metadata)
 		
-		with self._lock:
+		with self._cond:
 			self.__maybeForceAppend(tag).recordValue(tag, val)
+		return self
+	
+	def logScalars         (self, scalarsDict):
+		with self._cond:
+			for tag, scalar in scalarsDict:
+				self.logScalar(tag, scalar)
 		return self
 	
 	def logImage           (self, tag, image, csc=None, h=None, w=None,
 	                        displayName=None,
 	                        description=None,
 	                        pluginName=None,
-	                        pluginContent=None):
-		"""Log a single image."""
+	                        pluginContent=None,
+	                        maxOutputs=3):
+		"""
+		Log image(s).
+		
+		Accepts either a single encoded image as a bytes/bytearray, or one or
+		more images as a 3- or 4-D numpy array in the form CHW or NCHW.
+		"""
 		tag      = self.getFullTag(tag)
 		metadata = convert_metadata(displayName, description, pluginName, pluginContent)
 		if   isinstance(image, (bytes, bytearray)):
@@ -348,7 +425,7 @@ class EventLogger(object):
 			raise ValueError("Unable to interpret image arguments!")
 		val = TfImage(h, w, csc, image).asValue(tag, metadata)
 		
-		with self._lock:
+		with self._cond:
 			self.__maybeForceAppend(tag).recordValue(tag, val)
 		return self
 	
@@ -356,7 +433,15 @@ class EventLogger(object):
 	                        displayName=None,
 	                        description=None,
 	                        pluginName=None,
-	                        pluginContent=None):
+	                        pluginContent=None,
+	                        maxOutputs=3):
+		"""
+		Log audio sample(s).
+		
+		Accepts either a single or a batch of audio samples as a numpy 1-D or
+		2-D array of 16-bit signed integers, and encodes it to WAVE format.
+		"""
+		
 		tag      = self.getFullTag(tag)
 		metadata = convert_metadata(displayName, description, pluginName, pluginContent)
 		lengthFrames = len(audio)
@@ -381,7 +466,7 @@ class EventLogger(object):
 		                audio,
 		                "audio/wav").asValue(tag, metadata)
 		
-		with self._lock:
+		with self._cond:
 			self.__maybeForceAppend(tag).recordValue(tag, val)
 		return self
 	
@@ -394,7 +479,7 @@ class EventLogger(object):
 		metadata = convert_metadata(displayName, description, pluginName, pluginContent)
 		val      = TfTensor(text).asValue(tag, metadata)
 		
-		with self._lock:
+		with self._cond:
 			self.__maybeForceAppend(tag).recordValue(tag, val)
 		return self
 	
@@ -407,7 +492,7 @@ class EventLogger(object):
 		metadata = convert_metadata(displayName, description, pluginName, pluginContent)
 		val      = TfTensor(tensor, dimNames).asValue(tag, metadata)
 		
-		with self._lock:
+		with self._cond:
 			self.__maybeForceAppend(tag).recordValue(tag, val)
 		return self
 	
@@ -420,12 +505,12 @@ class EventLogger(object):
 		metadata = convert_metadata(displayName, description, pluginName, pluginContent)
 		val      = TfHistogram(tensor, bins).asValue(tag, metadata)
 		
-		with self._lock:
+		with self._cond:
 			self.__maybeForceAppend(tag).recordValue(tag, val)
 		return self
 	
 	def logMessage         (self, msg, level=TfLogLevel.UNKNOWN):
-		with self._lock:
+		with self._cond:
 			#
 			# As a special case, log messages always provoke the enqueuing of
 			# all accumulated summaries and their synchronous flushing to disk
@@ -441,14 +526,13 @@ class EventLogger(object):
 			#
 			
 			self.appendSummary()
-			self.appendBuffer(TfLogMessage(msg, level)
-			                  .asEvent(step=self._currentStep)
-			                  .asRecordByteArray())
+			self.appendEvent(TfLogMessage(msg, level)
+			                 .asEvent(step=self._currentStep))
 			self.flush()
 		return self
 	
 	def logSession         (self, status, msg=None, path=None):
-		with self._lock:
+		with self._cond:
 			#
 			# As a special case, session log messages always provoke the
 			# enqueuing of all accumulated summaries and their synchronous
@@ -462,9 +546,8 @@ class EventLogger(object):
 			#
 			
 			self.appendSummary()
-			self.appendBuffer(TfSessionLog(status, msg, path)
-			                  .asEvent(step=self._currentStep)
-			                  .asRecordByteArray())
+			self.appendEvent(TfSessionLog(status, msg, path)
+			                 .asEvent(step=self._currentStep))
 			self.flush()
 		return self
 	
@@ -475,7 +558,22 @@ class EventLogger(object):
 	# Stores the current thread's stack of default event loggers.
 	#
 	
-	__tls = threading.local()
+	__tls       = threading.local()
+	
+	#
+	# snake_case aliases for those who prefer that.
+	#
+	
+	get_event_logger = getEventLogger
+	log_scalar       = logScalar
+	log_scalars      = logScalars
+	log_image        = logImage
+	log_audio        = logAudio
+	log_text         = logText
+	log_tensor       = logTensor
+	log_hist         = logHist
+	log_message      = logMessage
+	log_session      = logSession
 
 
 #
@@ -494,6 +592,7 @@ class NullEventLogger(EventLogger):
 	"""
 	
 	def __init__           (self, *args, **kwargs):
+		# Training logistics-related
 		self._logDir       = "."
 		self._currentStep  = 0
 		self._creationStep = None
@@ -501,15 +600,20 @@ class NullEventLogger(EventLogger):
 		self._uuid         = uuid.UUID(int=0)
 		self._metadata     = set()
 		self._values       = {}
-		self.__bytebuffer = bytearray()
-		self._lock         = threading.RLock()
+		self.__bytebuffer  = bytearray()
+		
+		# Threading-related
+		self._flushSecs    = None
+		self._flushBufSz   = None
+		self._flushThread  = None
+		self._cond         = threading.Condition()
 		self._tls          = threading.local()
 	def appendBuffer       (self, b):         return self
-	def _spawnDaemonThread (self):            return self
-	def _daemonRun         (self):            pass
+	def _spawnFlushThread  (self):            return self
 	def recordValue        (self, tag, val):  return self
 	def flush              (self):            return self
 	def step               (self, step=None): return self
+	def close              (self):            return self
 
 
 
@@ -520,24 +624,48 @@ class NullEventLogger(EventLogger):
 #
 
 @contextlib.contextmanager
-def tagscope  (*args, **kwargs):
-	with EventLogger.getDefault().tagscope(*args, **kwargs):
+def tagscope        (*args, **kwargs):
+	with getEventLogger().tagscope(*args, **kwargs):
 		yield
-def logScalar (*args, **kwargs):
-	return EventLogger.getDefault().logScalar (*args, **kwargs)
-def logImage  (*args, **kwargs):
-	return EventLogger.getDefault().logImage  (*args, **kwargs)
-def logAudio  (*args, **kwargs):
-	return EventLogger.getDefault().logAudio  (*args, **kwargs)
-def logText   (*args, **kwargs):
-	return EventLogger.getDefault().logText   (*args, **kwargs)
-def logTensor (*args, **kwargs):
-	return EventLogger.getDefault().logTensor (*args, **kwargs)
-def logHist   (*args, **kwargs):
-	return EventLogger.getDefault().logHist   (*args, **kwargs)
-def logMessage(*args, **kwargs):
-	return EventLogger.getDefault().logMessage(*args, **kwargs)
-def logSession(*args, **kwargs):
-	return EventLogger.getDefault().logSession(*args, **kwargs)
+def getEventLogger  ():
+	return EventLogger.getEventLogger()
+def logScalar       (*args, **kwargs):
+	return getEventLogger().logScalar (*args, **kwargs)
+def logScalars      (*args, **kwargs):
+	return getEventLogger().logScalars(*args, **kwargs)
+def logImage        (*args, **kwargs):
+	return getEventLogger().logImage  (*args, **kwargs)
+def logAudio        (*args, **kwargs):
+	return getEventLogger().logAudio  (*args, **kwargs)
+def logText         (*args, **kwargs):
+	return getEventLogger().logText   (*args, **kwargs)
+def logTensor       (*args, **kwargs):
+	return getEventLogger().logTensor (*args, **kwargs)
+def logHist         (*args, **kwargs):
+	return getEventLogger().logHist   (*args, **kwargs)
+def logMessage      (*args, **kwargs):
+	return getEventLogger().logMessage(*args, **kwargs)
+def logSession      (*args, **kwargs):
+	return getEventLogger().logSession(*args, **kwargs)
+def get_event_logger():
+	return getEventLogger()
+def log_scalar      (*args, **kwargs):
+	return logScalar  (*args, **kwargs)
+def log_scalars     (*args, **kwargs):
+	return logScalars (*args, **kwargs)
+def log_image       (*args, **kwargs):
+	return logImage   (*args, **kwargs)
+def log_audio       (*args, **kwargs):
+	return logAudio   (*args, **kwargs)
+def log_text        (*args, **kwargs):
+	return logText    (*args, **kwargs)
+def log_tensor      (*args, **kwargs):
+	return logTensor  (*args, **kwargs)
+def log_hist        (*args, **kwargs):
+	return logHist    (*args, **kwargs)
+def log_message     (*args, **kwargs):
+	return logMessage (*args, **kwargs)
+def log_session     (*args, **kwargs):
+	return logSession (*args, **kwargs)
 
 

@@ -101,13 +101,16 @@ def mandelbrotEscTime(escTime, z, i):
 	imgGB   = np.where(currentlyEscaped, imgGB, 0)
 	img     = np.stack([imgR, imgGB, imgGB], axis=0)
 	
-	logImage("viz", img)
+	logImage("viz", img).close()
 	
 	##DEBUG: OpenCV viewing code
 	#import cv2 as cv
 	#cvImg = (img[::-1]*255).transpose(1,2,0).astype(np.uint8)
 	#cv.imshow("Image", cvImg)
 	#cv.waitKey(30)
+	
+	# Can put rank-0 tensors into the Scalars viewing pane with pluginName="scalars".
+	logTensor("test/rank0tensor", img.astype("float32").sum(), pluginName="scalars")
 	
 	return escTime
 
@@ -133,8 +136,9 @@ def main():
 		
 		#
 		# The current top-of-stack (default) event logger can be retrieved with
-		# EventLogger.getDefault(), and it supports the same methods as the
-		# global log*() functions.
+		# the global function getEventLogger() or the class method
+		# EventLogger.getEventLogger(), and it has methods that correspond to
+		# the global log*() functions.
 		#
 		# Moreover, these methods support a fluent interface through
 		# method call chaining:
@@ -142,12 +146,10 @@ def main():
 		#     logMessage("foo", foo).logScalar("bar", bar).logAudio("baz", baz)
 		#
 		
-		EventLogger.getDefault()                                             \
-		    .logMessage("Step {:2d} done!".format(i), TfLogLevel.INFO)       \
-		    .logMessage("Now we log a random scalar", TfLogLevel.WARN)       \
-		    .logScalar ("loss", 0.65 * 0.95**i)                              \
-		    .step()                                                          \
-		    .flush()
+		getEventLogger().logMessage("Step {:2d} done!".format(i), TfLogLevel.INFO) \
+		                .logMessage("Now we log a random scalar", TfLogLevel.WARN) \
+		                .logScalar ("loss", 0.65 * 0.95**i)                        \
+		                .step().flush()
 		
 		print("Step {:2d}".format(i))
 
