@@ -149,12 +149,6 @@ class Experiment(object):
 		
 		return self
 	
-	def run(self):
-		"""Run a readied experiment.
-		
-		Returns `self`."""
-		
-		return self
 	
 	
 	# High-level Snapshot & Rollback
