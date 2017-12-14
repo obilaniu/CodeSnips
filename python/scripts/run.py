@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 
 # Imports.
-import sys; sys.path += ["."] # Or whatever.
 import argparse                             as Ap
 import logging                              as L
 import numpy                                as np
@@ -111,6 +110,8 @@ class Train(Subcommand):
 		argp.add_argument("--cuda",                 default=None,               type=int,
 		    nargs="?", const=0,
 		    help="CUDA device to use.")
+		argp.add_argument("--pdb",     action="store_true",
+		    help="""Breakpoint before model entry.""")
 		optp = argp.add_argument_group("Optimizers", "Tunables for all optimizers")
 		optp.add_argument("--optimizer", "--opt", action=OptimizerAction,
 		    type=str, default="nag", help="Optimizer selection.")
@@ -178,6 +179,7 @@ class Train(Subcommand):
 		np.random.set_state(state)
 		
 		import expmt;
+		if d.pdb: pdb.set_trace()
 		expmt.getExperiment(d).rollback().run()
 
 
@@ -222,5 +224,10 @@ def main(argv):
 	d = getArgParser(argv[0]).parse_args(argv[1:])
 	return d.__subcmdfn__(d)
 if __name__ == "__main__":
-	main(sys.argv)
+	try:
+		main(sys.argv)
+	except KeyboardInterrupt as ki:
+		raise
+	except:
+		traceback.print_exc()
 
