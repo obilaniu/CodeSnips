@@ -3,6 +3,7 @@
 
 # Imports.
 import argparse                             as Ap
+import hashlib
 import logging                              as L
 import numpy                                as np
 import os, pdb, sys
