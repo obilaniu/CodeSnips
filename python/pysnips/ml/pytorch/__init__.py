@@ -5,7 +5,7 @@
 # String list, naming the submodules to be imported on import *
 #
 
-__all__ = ["yellowfin"]
+__all__ = ["yellowfin", "layers"]
 
 
 
@@ -14,5 +14,7 @@ __all__ = ["yellowfin"]
 #
 
 from . import yellowfin
+from . import layers
 
 from .yellowfin import YellowFin
+from .layers    import GradProbe
