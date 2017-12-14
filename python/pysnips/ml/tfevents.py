@@ -387,6 +387,43 @@ class TfDim               (PebbleMessage):
 		if   hasattr(self, "name"):                 b += enc_tagvalue("string",  2, self.name)
 		return b
 
+class TfLayout            (PebbleMessage):
+	def __init__(self, category):
+		self.version  = 0
+		self.category = list(category)
+	
+	def asByteArray(self):
+		b = bytearray()
+		if   hasattr(self, "version"):              b += enc_tagvalue("int32",   1, self.version)
+		if   hasattr(self, "category"):
+			for c in self.category:                 b += enc_tagvalue("message", 2, c)
+		return b
+
+class TfCategory          (PebbleMessage):
+	def __init__(self, title, chart, closed=False):
+		self.title  = str(title)
+		self.chart  = list(chart)
+		self.closed = bool(closed)
+	
+	def asByteArray(self):
+		b = bytearray()
+		if   hasattr(self, "title"):                b += enc_tagvalue("string",  1, self.title)
+		if   hasattr(self, "chart"):
+			for c in self.chart:                    b += enc_tagvalue("message", 2, c)
+		if   hasattr(self, "closed"):               b += enc_tagvalue("bool",    3, self.closed)
+		return b
+
+class TfChart             (PebbleMessage):
+	def __init__(self, title, tags):
+		self.title    = str(title)
+		self.tag      = list(tags)
+	
+	def asByteArray(self):
+		b = bytearray()
+		if   hasattr(self, "title"):                b += enc_tagvalue("string",  1, self.title)
+		if   hasattr(self, "tag"):
+			for t in self.tag:                      b += enc_tagvalue("string",  2, t)
+		return b
 
 
 def convert_dtype_np2tf(dtype):
@@ -476,6 +513,7 @@ below, organized by the hierarchy of their inclusion, namely:
 				https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/framework/resource_handle.proto
 				https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/framework/tensor_shape.proto
 				https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/framework/types.proto
+	https://github.com/tensorflow/tensorboard/blob/master/tensorboard/plugins/custom_scalar/layout.proto
 
 The entities that exist in those files are below, organized by the hierarchy of
 their inclusion (irrelevant/obsolete members removed):
@@ -568,6 +606,18 @@ their inclusion (irrelevant/obsolete members removed):
 						bool unknown_rank // == 0 for all cases of concern to us
 					int          version_number   // == 0
 					bytes        tensor_content   // Row-major (C-contiguous) order
+	
+	# Custom Scalars plugin (custom_scalars):
+	Layout            layout
+		int32             version
+		repeated Category category
+			string            title
+			bool              closed
+			repeated Chart    chart
+				string            title
+				repeated string   tag
+
+
 
 
 
@@ -962,6 +1012,46 @@ enum DataType {
   DT_UINT64_REF = 123;
 }
 
+/**
+ * Encapsulates information on a single chart. Many charts appear in a category.
+ */
+message Chart {
+  // The title shown atop this chart. This field is optional and defaults to a
+  // comma-separated list of tag regular expressions.
+  string title = 1;
+
+  // A list of regular expressions for tags that should appear in this chart.
+  // Tags are matched based from beginning to end.
+  repeated string tag = 2;
+}
+
+/**
+ * A category contains a group of charts. Each category maps to a collapsible
+ * within the dashboard.
+ */
+message Category {
+  // This string appears atop each grouping of charts within the dashboard.
+  string title = 1;
+
+  // Encapsulates data on charts to be shown in the category.
+  repeated Chart chart = 2;
+
+  // Whether this category should be initially closed. False by default.
+  bool closed = 3;
+}
+
+/**
+ * A layout encapsulates how charts are laid out within the custom scalars
+ * dashboard.
+ */
+message Layout {
+  // Version `0` is the only supported version.
+  int32 version = 1;
+
+  // The categories here are rendered from top to bottom.
+  repeated Category category = 2;
+}
+
 
 
 
@@ -971,6 +1061,5 @@ enum DataType {
 
 TO BE LOOKED AT:
 	https://github.com/tensorflow/tensorboard/blob/master/tensorboard/plugins/projector/projector_config.proto
-	https://github.com/tensorflow/tensorboard/blob/master/tensorboard/plugins/custom_scalar/layout.proto
 	https://github.com/tensorflow/tensorboard/blob/master/tensorboard/plugins/pr_curve
 """

@@ -22,10 +22,10 @@ from   .tfevents       import convert_metadata
 
 __all__ = ["EventLogger", "NullEventLogger", "tagscope", "getEventLogger",
            "logScalar", "logScalars", "logImage",   "logAudio",   "logText",
-           "logTensor", "logHist",    "logMessage", "logSession",
-           "get_event_logger", "log_scalar", "log_scalars", "log_image",
-           "log_audio",        "log_text",   "log_tensor",  "log_hist",
-           "log_message",      "log_session",
+           "logTensor", "logHist",    "logMessage", "logSession", "logLayout",
+           "get_event_logger", "log_scalar",  "log_scalars", "log_image",
+           "log_audio",        "log_text",    "log_tensor",  "log_hist",
+           "log_message",      "log_session", "log_layout",
            "TfLogLevel", "TfSessionStatus", "TfDataType", "TfColorSpace"]
 
 
@@ -44,6 +44,7 @@ class EventLogger(object):
 		self._creationStep = step
 		self._currentStep  = 0 if step is None else int(self._creationStep)
 		self._creationTime = time.time()
+		self._summaryTime  = self._creationTime
 		self._uuid         = uuid.uuid4()
 		self._metadata     = set()
 		self._values       = {}
@@ -182,7 +183,8 @@ class EventLogger(object):
 		This is done by popping it from the stack of loggers on context exit.
 		"""
 		
-		EventLogger.__tls._loggerStack.pop().close()
+		self.close()
+		assert EventLogger.__tls._loggerStack.pop() == self
 	
 	def _spawnFlushThread  (self):
 		"""
@@ -192,9 +194,6 @@ class EventLogger(object):
 		
 		with self._cond:
 			if self.asynchronous and not self._flushThread:
-				#
-				# Flusher Thread run()
-				#
 				def flusher():
 					"""
 					Flusher thread implementation. Simply waits on the
@@ -216,9 +215,7 @@ class EventLogger(object):
 						self._flushThread = None
 						self._cond.notifyAll()
 				
-				#
-				# Flusher Thread spawn process.
-				#
+				
 				thrdName = "eventlogger-{:x}-flushThread".format(id(self))
 				self._flushThread = threading.Thread(target=flusher, name=thrdName)
 				self._flushThread.isExiting = False
@@ -248,19 +245,19 @@ class EventLogger(object):
 		
 		with self._cond:
 			if step is None:
-				#
-				# Since the step number is being changed, enqueue all of the
-				# waiting summaries to the bytebuffer, so that they are
-				# recorded with the correct step number.
-				#
+				"""
+				Since the step number is being changed, enqueue all of the
+				waiting summaries to the bytebuffer, so that they are
+				recorded with the correct step number.
+				"""
 				self.appendSummary()
 				self._currentStep += 1
 			else:
-				#
-				# We're forcibly changing the global step number. We should
-				# flush out the current buffers. This includes the enqueueing
-				# of summaries.
-				#
+				"""
+				We're forcibly changing the global step number. We should
+				flush out the current buffers. This includes the enqueueing
+				of summaries.
+				"""
 				self.flush()
 				self._currentStep = int(step)
 		return self
@@ -276,7 +273,7 @@ class EventLogger(object):
 		The only time the bytebuffer's size can change other than through this
 		method is when it is flushed and emptied periodically from within the
 		flush() method, which may be called either synchronously by any thread,
-		or asynchronously by the flushing thread.
+		or asynchronously by the flusher thread.
 		"""
 		
 		with self._cond:
@@ -303,7 +300,8 @@ class EventLogger(object):
 		with self._cond:
 			if self._values:
 				self.appendEvent(TfSummary(self._values)
-				                 .asEvent(step=self._currentStep))
+				                 .asEvent(step     = self._currentStep,
+				                          wallTime = self._summaryTime))
 				self._values = {}
 		return self
 	
@@ -313,12 +311,18 @@ class EventLogger(object):
 		return self
 	
 	def recordValue        (self, tag, val):
+		"""
+		Records a value in the values summary.
+		"""
+		
 		assert isinstance(tag, str)
 		assert isinstance(val, TfValue)
-		if hasattr(val, "metadata") and tag in self._metadata:
-			del val.metadata
-		self._values[tag] = val
-		self._metadata.add(tag)
+		with self._cond:
+			if hasattr(val, "metadata") and tag in self._metadata:
+				del val.metadata
+			self._values[tag] = val
+			self._metadata.add(tag)
+			self._summaryTime = time.time()
 		return self
 	
 	def flush              (self):
@@ -551,6 +555,14 @@ class EventLogger(object):
 			self.flush()
 		return self
 	
+	def logLayout          (self, layout):
+		#
+		# A layout is a TfTensor of TfDataType.STRING, where the string payload
+		# is an encoded TfLayout protobuf message. The tensor is logged as a
+		# TfValue with the magic tag "custom_scalars__config__" and the
+		# pluginName "custom_scalars".
+		#
+		return self
 	
 	#
 	# Static, thread-local data
@@ -574,6 +586,7 @@ class EventLogger(object):
 	log_hist         = logHist
 	log_message      = logMessage
 	log_session      = logSession
+	log_layout       = logLayout
 
 
 #
@@ -647,6 +660,8 @@ def logMessage      (*args, **kwargs):
 	return getEventLogger().logMessage(*args, **kwargs)
 def logSession      (*args, **kwargs):
 	return getEventLogger().logSession(*args, **kwargs)
+def logLayout       (*args, **kwargs):
+	return getEventLogger().logLayout (*args, **kwargs)
 def get_event_logger():
 	return getEventLogger()
 def log_scalar      (*args, **kwargs):
@@ -667,5 +682,6 @@ def log_message     (*args, **kwargs):
 	return logMessage (*args, **kwargs)
 def log_session     (*args, **kwargs):
 	return logSession (*args, **kwargs)
-
+def log_layout      (*args, **kwargs):
+	return logLayout  (*args, **kwargs)
 
