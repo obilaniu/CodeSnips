@@ -23,12 +23,12 @@ class Experiment(object):
 			->  snapshot/              | Snapshot directory
 				-> <#>/                | Snapshot numbered <#>
 					->  *.hdf5, ...    | Data files and suchlike.
-			->  latest                 | Symbolic link to latest snapshot.
+				->  latest             | Symbolic link to latest snapshot.
 	
 	The invariants to be preserved are:
-		- workdir/latest either does not exist, or is a *symbolic link* pointing
-		  to the directory `snapshot/#`, which does exist and has a complete
-		  loadable snapshot within it.
+		- workDir/snapshot/latest either does not exist, or is a *symbolic link*
+		  pointing to the directory `#`, which does exist and has a
+		  complete, valid, loadable snapshot within it.
 		- Snapshots are not modified in any way after they've been dumped,
 		  except for deletions due to purging.
 	"""
@@ -43,9 +43,18 @@ class Experiment(object):
 		
 		self.__dict__.update(dict(filter(lambda k: not k[0].startswith("__"),
 		                                 kwargs.iteritems())))
+		
+		super(Experiment, self).__init__(*args, **kwargs)
 	
 	
-	# Fundamental properties
+	#
+	# Fundamental properties:
+	#     workDir
+	#     snapDir
+	#     latestLink
+	#     latestSnapshotNum
+	#     nextSnapshotNum
+	#
 	@property
 	def workDir(self): return self.__workDir
 	@property
@@ -53,13 +62,11 @@ class Experiment(object):
 		return os.path.join(self.workDir, "snapshot")
 	@property
 	def latestLink(self):
-		return os.path.join(self.workDir, "latest")
+		return os.path.join(self.snapDir, "latest")
 	@property
 	def latestSnapshotNum(self):
 		if self.haveSnapshots():
 			s = os.readlink(self.latestLink)
-			assert(os.path.dirname(s) == "snapshot")
-			s = os.path.basename(s)
 			s = int(s, base=10)
 			assert(s >= 0)
 			return s
@@ -73,30 +80,11 @@ class Experiment(object):
 	def nextSnapshotNum(self):
 		return self.latestSnapshotNum+1
 	
-	
-	# General utilities. Not to be overriden.
-	def getWorkdirRelPathToSnapshot(self, n):
-		if isinstance(n, str):
-			n = int(n, base=10)
-		return os.path.join("snapshot", str(n))
-	def getFullPathToSnapshot      (self, n):
-		return os.path.join(self.workDir, self.getWorkdirRelPathToSnapshot(n))
-	
-	
-	# Private functions
-	def __markLatest(self, n):
-		"""Atomically reroute the "latest" symlink in the working directory so
-		that it points to the given snapshot number."""
-		self.atomicSymlink(self.getWorkdirRelPathToSnapshot(n), self.latestLink)
-		return self
-	
-	
 	#
 	# Mutable State Management.
 	#
 	# To be implemented by user as he/she sees fit.
 	#
-	
 	def load(self, path):
 		"""
 		Load state from given path.
@@ -150,9 +138,10 @@ class Experiment(object):
 		return self
 	
 	
-	
-	# High-level Snapshot & Rollback
-	def snapshot(self):
+	#
+	# High-level Snapshot & Rollback Management
+	#
+	def snapshot             (self):
 		"""Take a snapshot of the experiment.
 		
 		Returns `self`."""
@@ -163,7 +152,7 @@ class Experiment(object):
 			self.rmR(nextSnapshotPath)
 		return self.dump(nextSnapshotPath).__markLatest(nextSnapshotNum)
 	
-	def rollback(self, n=None):
+	def rollback             (self, n=None):
 		"""Roll back the experiment to the given snapshot number.
 		
 		Returns `self`."""
@@ -178,11 +167,15 @@ class Experiment(object):
 		else:
 			raise ValueError("n must be int, or None!")
 	
-	def haveSnapshots(self):
+	def haveSnapshots        (self):
 		"""Check if we have at least one snapshot."""
 		return os.path.islink(self.latestLink) and os.path.isdir(self.latestLink)
 	
-	def purge(self, strategy="klogn", keep=None, deleteNonSnapshots=False, **kwargs):
+	def purge                (self,
+	                          strategy           = "klogn",
+	                          keep               = None,
+	                          deleteNonSnapshots = False,
+	                          **kwargs):
 		"""Purge snapshot directory of snapshots according to some strategy,
 		preserving however a given "keep" list or set of snapshot numbers.
 		
@@ -196,38 +189,47 @@ class Experiment(object):
 		
 		assert(isinstance(keep, (list, set))  or  keep is None)
 		keep = set(keep or [])
-		if   strategy in ["lastk", None]:
-			keep.update(self.strategyLastK(self.latestSnapshotNum, **kwargs))
-		elif strategy in ["klogn"]:
-			keep.update(self.strategyKLogN(self.latestSnapshotNum, **kwargs))
-		
-		
-		snaps, nonSnaps = self.listSnapshotDir(self.snapDir)
-		snapshotRemoveList = set(snaps)
-		if deleteNonSnapshots:
-			snapshotRemoveList |= set(nonSnaps)
-		snapshotRemoveList.difference_update(keep)
-		
-		
-		for s in snapshotRemoveList:
-			snapPath = os.path.join(self.snapDir, str(s))
-			if(os.path.islink  (self.latestLink) and
-			   os.path.samefile(self.latestLink, snapPath)):
-				# Don't delete this snapshot, since it's the current one
-				pass
+		if self.haveSnapshots():
+			if   strategy == "lastk":
+				keep.update(self.strategyLastK(self.latestSnapshotNum, **kwargs))
+			elif strategy == "klogn":
+				keep.update(self.strategyKLogN(self.latestSnapshotNum, **kwargs))
 			else:
-				self.rmR(snapPath)
+				raise ValueError("Unknown purge strategy "+str(None)+"!")
+			keep.update(["latest", str(self.latestSnapshotNum)])
+		keep = set(map(str, keep))
+		
+		snaps, nonSnaps    = self.listSnapshotDir(self.snapDir)
+		dirEntriesToDelete = set()
+		dirEntriesToDelete.update(snaps)
+		dirEntriesToDelete.update(nonSnaps if deleteNonSnapshots else set())
+		dirEntriesToDelete.difference_update(keep)
+		for dirEntry in dirEntriesToDelete:
+			self.rmR(os.path.join(self.snapDir, dirEntry))
 		
 		return self
 	
+	def getFullPathToSnapshot(self, n):
+		"""Get the full path to snapshot n."""
+		return os.path.join(self.snapDir, str(n))
 	
-	# Snapshot strategies
+	def __markLatest         (self, n):
+		"""Atomically reroute the "latest" symlink in the working directory so
+		that it points to the given snapshot number."""
+		self.atomicSymlink(str(n), self.latestLink)
+		return self
+	
+	#
+	# Snapshot purge strategies.
+	#
 	@classmethod
 	def strategyLastK(kls, n, k=10):
-		return filter(lambda x:x>=0, range(n, n-k, -1))
+		"""Return the directory names to preserve under the LastK purge strategy."""
+		return set(map(str, filter(lambda x:x>=0, range(n, n-k, -1))))
 	
 	@classmethod
 	def strategyKLogN(kls, n, k=4):
+		"""Return the directory names to preserve under the KLogN purge strategy."""
 		assert(k>1)
 		s = set([n])
 		i = 0
@@ -237,10 +239,11 @@ class Experiment(object):
 			i += 1
 			n -= n % k**i
 		
-		return filter(lambda x:x>=0, s)
+		return set(map(str, filter(lambda x:x>=0, s)))
 	
-	
+	#
 	# Filesystem Utilities
+	#
 	@classmethod
 	def mkdirp(kls, path):
 		"""`mkdir -p path/to/folder`. Creates a folder and all parent
@@ -260,15 +263,14 @@ class Experiment(object):
 	
 	@classmethod
 	def listSnapshotDir(kls, path):
-		entryList = os.listdir(path)
-		
+		entryList      = os.listdir(path)
 		snapshotSet    = set()
 		nonsnapshotSet = set()
+		
 		for e in entryList:
-			if kls.isFilenameInteger(e):
-				snapshotSet.add(int(e, base=10))
-			else:
-				nonsnapshotSet.add(e)
+			if kls.isFilenameInteger(e): snapshotSet   .add(e)
+			else:                        nonsnapshotSet.add(e)
+		
 		return snapshotSet, nonsnapshotSet
 	
 	@classmethod
