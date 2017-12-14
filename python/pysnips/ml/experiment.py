@@ -33,18 +33,11 @@ class Experiment(object):
 		  except for deletions due to purging.
 	"""
 	
-	def __init__(self,
-	             workDir=".",
-	             *args, **kwargs):
+	def __init__(self, workDir="."):
 		self.__workDir = os.path.abspath(workDir)
 		
 		self.mkdirp(self.workDir)
 		self.mkdirp(self.snapDir)
-		
-		self.__dict__.update(dict(filter(lambda k: not k[0].startswith("__"),
-		                                 kwargs.iteritems())))
-		
-		super(Experiment, self).__init__(*args, **kwargs)
 	
 	
 	#
@@ -100,21 +93,21 @@ class Experiment(object):
 	
 	def dump(self, path):
 		"""
-		Dump state to given path.
+		Dump state to the directory `path/`
 		
-		The state can be saved as either
-		- A file with exactly the name `path` or
-		- A directory with exactly the name `path` containing a freeform
-		  hierarchy underneath it.
+		When invoked by the snapshot machinery, `path/` may be assumed to
+		already exist. The state must be saved under that directory, but
+		the contents of that directory and any hierarchy underneath it are
+		completely freeform, except that the subdirectory `path/.experiment`
+		must not be touched.
 		
 		When invoked by the snapshot machinery, the path's basename as given
 		by os.path.basename(path) will be the number this snapshot will be
 		be assigned, and it is equal to self.nextSnapshotNum.
 		
 		Returns `self`.
-		
 		"""
-		self.mkdirp(path)
+		
 		return self
 	
 	def fromScratch(self):
@@ -150,6 +143,7 @@ class Experiment(object):
 		
 		if os.path.lexists(nextSnapshotPath):
 			self.rmR(nextSnapshotPath)
+		self.mkdirp(os.path.join(nextSnapshotPath, ".experiment"))
 		return self.dump(nextSnapshotPath).__markLatest(nextSnapshotNum)
 	
 	def rollback             (self, n=None):
