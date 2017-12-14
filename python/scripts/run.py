@@ -159,7 +159,23 @@ class Train(Subcommand):
 		entryLogger          .setLevel     (cls.LOGLEVELS[d.loglevel])
 		entryLogger          .addHandler   (entryLogFHandler)
 		
-		np.random.seed(d.seed % 2**32)
+		#
+		# np.random.seed() won't use anything more than 32 seed bits.
+		# Be brutal and directly generate an entire MT19937 state using PBKDF2.
+		#
+		
+		state = np.random.get_state()
+		state = (state[0],
+		         np.frombuffer(hashlib.pbkdf2_hmac("sha256",         # Hash
+		                                           str(d.seed),      # Password
+		                                           state[0],         # Salt
+		                                           1,                # Rounds
+		                                           state[1].nbytes), # DKLen
+		                       dtype=np.uint32),
+		         624,
+		         0,
+		         0.0)
+		np.random.set_state(state)
 		
 		import expmt;
 		expmt.getExperiment(d).rollback().run()
