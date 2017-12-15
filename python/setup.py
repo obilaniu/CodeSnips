@@ -49,8 +49,7 @@ setup(
     packages             = find_packages(exclude=["scripts"]),
     ext_modules          = [
         Extension("pysnips.discrete.cksum.crc_native",
-                  [os.path.join("pysnips", "discrete", "cksum", "crc_native.c")],
-                  extra_compile_args=["-march=native"])
+                  [os.path.join("pysnips", "discrete", "cksum", "crc_native.c")])
     ],
     install_requires     = [
         "numpy>=1.10",
