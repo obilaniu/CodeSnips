@@ -165,7 +165,7 @@ if __name__ == "__main__":
 	# here WILL BE IGNORED by TensorBoard ("orphaned").
 	#
 	
-	with EventLogger(".", step=0, flushSecs=60.0):
+	with EventLogger(".", 0, flushSecs=60.0):
 		main()
 	
 	#

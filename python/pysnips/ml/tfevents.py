@@ -19,10 +19,11 @@ from   pebble              import (PebbleMessage,
 
 
 __all__ = ["TfLogLevel", "TfSessionStatus", "TfDataType", "TfColorSpace",
-           "TfEvent", "TfSummary", "TfLogMessage", "TfSessionLog",
-           "TfTaggedRunMetadata", "TfValue", "TfSummaryMetadata",
-           "TfPluginData", "TfImage", "TfHistogram", "TfAudio", "TfTensor",
-           "TfTensorShape", "TfDim"]
+           "TfGraphKeys", "TfEvent", "TfSummary", "TfLogMessage",
+           "TfSessionLog", "TfTaggedRunMetadata", "TfValue",
+           "TfSummaryMetadata", "TfPluginData", "TfImage", "TfHistogram",
+           "TfAudio", "TfTensor", "TfTensorShape", "TfDim", "TfLayout",
+           "TfCategory", "TfChart"]
 
 
 #
@@ -85,6 +86,44 @@ class TfColorSpace        (object):
 	
 	def __init__(self): raise
 
+class TfGraphKeys         (object):
+	LOSSES                        = "losses"
+	TRAINABLE_RESOURCE_VARIABLES  = "trainable_resource_variables"
+	REGULARIZATION_LOSSES         = "regularization_losses"
+	SAVERS                        = "savers"
+	_SUMMARY_COLLECTION           = "_SUMMARY_V2"
+	QUEUE_RUNNERS                 = "queue_runners"
+	ACTIVATIONS                   = "activations"
+	EVAL_STEP                     = "eval_step"
+	GLOBAL_VARIABLES              = "variables"
+	WHILE_CONTEXT                 = "while_context"
+	TRAIN_OP                      = "train_op"
+	GLOBAL_STEP                   = "global_step"
+	SAVEABLE_OBJECTS              = "saveable_objects"
+	METRIC_VARIABLES              = "metric_variables"
+	READY_FOR_LOCAL_INIT_OP       = "ready_for_local_init_op"
+	UPDATE_OPS                    = "update_ops"
+	ASSET_FILEPATHS               = "asset_filepaths"
+	WEIGHTS                       = "weights"
+	INIT_OP                       = "init_op"
+	LOCAL_INIT_OP                 = "local_init_op"
+	LOCAL_RESOURCES               = "local_resources"
+	TABLE_INITIALIZERS            = "table_initializer"
+	_STREAMING_MODEL_PORTS        = "streaming_model_ports"
+	BIASES                        = "biases"
+	LOCAL_VARIABLES               = "local_variables"
+	MOVING_AVERAGE_VARIABLES      = "moving_average_variables"
+	RESOURCES                     = "resources"
+	CONCATENATED_VARIABLES        = "concatenated_variables"
+	TRAINABLE_VARIABLES           = "trainable_variables"
+	READY_OP                      = "ready_op"
+	COND_CONTEXT                  = "cond_context"
+	SUMMARY_OP                    = "summary_op"
+	MODEL_VARIABLES               = "model_variables"
+	SUMMARIES                     = "summaries"
+	
+	def __init__(self): raise
+
 #
 # Message Hierarchy as defined by TF
 #
@@ -142,8 +181,8 @@ class TfSummary           (PebbleMessage):
 			for v in self.value:                    b += enc_tagvalue("message", 1, v)
 		return b
 	
-	def asEvent(self, **kwargs):
-		return TfEvent(summary=self, **kwargs)
+	def asEvent(self, step=0, wallTime=None):
+		return TfEvent(step, wallTime, summary=self)
 
 class TfLogMessage        (PebbleMessage):
 	def __init__(self, message, level=TfLogLevel.UNKNOWN):
@@ -156,12 +195,12 @@ class TfLogMessage        (PebbleMessage):
 		if   hasattr(self, "message"):              b += enc_tagvalue("string",  2, self.message)
 		return b
 	
-	def asEvent(self, **kwargs):
-		return TfEvent(logMessage=self, **kwargs)
+	def asEvent(self, step=0, wallTime=None):
+		return TfEvent(step, wallTime, logMessage=self)
 
 class TfSessionLog        (PebbleMessage):
 	def __init__(self, status, msg=None, path=None):
-		self.status = status
+		self.status = int(status)
 		if msg  is not None: self.msg             = str(msg)
 		if path is not None: self.checkpoint_path = str(path)
 	
@@ -172,8 +211,8 @@ class TfSessionLog        (PebbleMessage):
 		if   hasattr(self, "msg"):                  b += enc_tagvalue("string",  3, self.msg)
 		return b
 	
-	def asEvent(self, **kwargs):
-		return TfEvent(sessionLog=self, **kwargs)
+	def asEvent(self, step=0, wallTime=None):
+		return TfEvent(step, wallTime, sessionLog=self)
 
 class TfTaggedRunMetadata (PebbleMessage):
 	def __init__(self, tag, runMetadata):
@@ -186,8 +225,8 @@ class TfTaggedRunMetadata (PebbleMessage):
 		if   hasattr(self, "run_metadata"):         b += enc_tagvalue("bytes",   2, self.run_metadata)
 		return b
 	
-	def asEvent(self, **kwargs):
-		return TfEvent(taggedRunMetadata=self, **kwargs)
+	def asEvent(self, step=0, wallTime=None):
+		return TfEvent(step, wallTime, taggedRunMetadata=self)
 
 class TfValue             (PebbleMessage):
 	def __init__(self, tag,
@@ -519,93 +558,94 @@ The entities that exist in those files are below, organized by the hierarchy of
 their inclusion (irrelevant/obsolete members removed):
 
 	Event
-		double  wall_time
-		int         step
-		string      file_version
-		LogMessage  log_message
-			enum        level
-				UNKNOWN:     0
-				DEBUGGING:  10
-				INFO:       20
-				WARN:       30
-				ERROR:      40
-				FATAL:      50
-			string      message
-		SessionLog  session_log
-			enum        status
-				UNSPECIFIED: 0
-				START:       1
-				STOP:        2
-				CHECKPOINT:  3
-			string      checkpoint_path
-			string      msg
-		Summary     summary
-			repeated Value value
-				string           tag
-				SummaryMetadata  metadata
-					PluginData
-						string plugin_name
-						bytes  content
-					string display_name
-					string summary_description
-				float            simple_value
-				Image            image
-					int   height
-					int   width
-					int   colorspace
-						grayscale:        1
-						grayscale+alpha:  2
-						RGB:              3
-						RGBA:             4
-						DIGITAL_YUV:      5
-						BGRA:             6
-					bytes data
-				HistogramProto   histo
-					double           min
-					double           max
-					double           num
-					double           sum
-					repeated packed double sum_squares
-					repeated packed double bucket_limit
-				Audio            audio
-					float            sample_rate   // In Hz
-					int              num_channels
-					int              length_franes
-					bytes            data
-					string           content_type
-				TensorProto      tensor
-					enum DataType    dtype
-						DT_INVALID = 0;// Not a legal value for DataType.  Used to indicate a DataType field has not been set.
-						DT_FLOAT = 1;  // Data types that all computation devices are expected to be
-						DT_DOUBLE = 2; // capable to support.
-						DT_INT32 = 3;
-						DT_UINT8 = 4;
-						DT_INT16 = 5;
-						DT_INT8 = 6;
-						DT_STRING = 7;
-						DT_COMPLEX64 = 8;  // Single-precision complex
-						DT_INT64 = 9;
-						DT_BOOL = 10;
-						DT_QINT8 = 11;     // Quantized int8
-						DT_QUINT8 = 12;    // Quantized uint8
-						DT_QINT32 = 13;    // Quantized int32
-						DT_BFLOAT16 = 14;  // Float32 truncated to 16 bits.  Only for cast ops.
-						DT_QINT16 = 15;    // Quantized int16
-						DT_QUINT16 = 16;   // Quantized uint16
-						DT_UINT16 = 17;
-						DT_COMPLEX128 = 18;  // Double-precision complex
-						DT_HALF = 19;
-						DT_RESOURCE = 20;
-						DT_VARIANT = 21;  // Arbitrary C++ data types
-						DT_UINT32 = 22;
-						DT_UINT64 = 23;
-					TensorShapeProto tensor_shape
-						repeated Dim dim
-							int    size
-							string name
-						bool unknown_rank // == 0 for all cases of concern to us
-					int          version_number   // == 0
-					bytes        tensor_content   // Row-major (C-contiguous) order
+		double      wall_time
+		int64       step
+		oneof:
+			string      file_version
+			LogMessage  log_message
+				enum        level
+					UNKNOWN:     0
+					DEBUGGING:  10
+					INFO:       20
+					WARN:       30
+					ERROR:      40
+					FATAL:      50
+				string      message
+			SessionLog  session_log
+				enum        status
+					UNSPECIFIED: 0
+					START:       1
+					STOP:        2
+					CHECKPOINT:  3
+				string      checkpoint_path
+				string      msg
+			Summary     summary
+				repeated Value value
+					string           tag
+					SummaryMetadata  metadata
+						PluginData
+							string plugin_name
+							bytes  content
+						string display_name
+						string summary_description
+					float            simple_value
+					Image            image
+						int   height
+						int   width
+						int   colorspace
+							grayscale:        1
+							grayscale+alpha:  2
+							RGB:              3
+							RGBA:             4
+							DIGITAL_YUV:      5
+							BGRA:             6
+						bytes data
+					HistogramProto   histo
+						double           min
+						double           max
+						double           num
+						double           sum
+						repeated packed double sum_squares
+						repeated packed double bucket_limit
+					Audio            audio
+						float            sample_rate   // In Hz
+						int              num_channels
+						int              length_franes
+						bytes            data
+						string           content_type
+					TensorProto      tensor
+						enum DataType    dtype
+							DT_INVALID = 0;// Not a legal value for DataType.  Used to indicate a DataType field has not been set.
+							DT_FLOAT = 1;  // Data types that all computation devices are expected to be
+							DT_DOUBLE = 2; // capable to support.
+							DT_INT32 = 3;
+							DT_UINT8 = 4;
+							DT_INT16 = 5;
+							DT_INT8 = 6;
+							DT_STRING = 7;
+							DT_COMPLEX64 = 8;  // Single-precision complex
+							DT_INT64 = 9;
+							DT_BOOL = 10;
+							DT_QINT8 = 11;     // Quantized int8
+							DT_QUINT8 = 12;    // Quantized uint8
+							DT_QINT32 = 13;    // Quantized int32
+							DT_BFLOAT16 = 14;  // Float32 truncated to 16 bits.  Only for cast ops.
+							DT_QINT16 = 15;    // Quantized int16
+							DT_QUINT16 = 16;   // Quantized uint16
+							DT_UINT16 = 17;
+							DT_COMPLEX128 = 18;  // Double-precision complex
+							DT_HALF = 19;
+							DT_RESOURCE = 20;
+							DT_VARIANT = 21;  // Arbitrary C++ data types
+							DT_UINT32 = 22;
+							DT_UINT64 = 23;
+						TensorShapeProto tensor_shape
+							repeated Dim dim
+								int    size
+								string name
+							bool unknown_rank // == 0 for all cases of concern to us
+						int          version_number   // == 0
+						bytes        tensor_content   // Row-major (C-contiguous) order
 	
 	# Custom Scalars plugin (custom_scalars):
 	Layout            layout
