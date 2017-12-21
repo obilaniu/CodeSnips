@@ -242,7 +242,7 @@ class EventLogger(object):
 		
 		return self
 	
-	def _commonTagLogic     (self, **kwargs):
+	def _commonTagLogic     (self, defaultPluginName, **kwargs):
 		"""
 		Handle several flags common to most summary log*() methods and
 		return a tuple metadata, reject, tag.
@@ -258,7 +258,7 @@ class EventLogger(object):
 		tagPrefix     = kwargs.pop("tagPrefix",     None)
 		displayName   = kwargs.pop("displayName",   None)
 		description   = kwargs.pop("description",   None)
-		pluginName    = kwargs.pop("pluginName",    None)
+		pluginName    = kwargs.pop("pluginName",    defaultPluginName)
 		pluginContent = kwargs.pop("pluginContent", None)
 		
 		"""
@@ -541,7 +541,7 @@ class EventLogger(object):
 	def logScalar           (self, tag, scalar, **kwargs):
 		"""Log a single scalar value."""
 		
-		metadata, reject, tag = self._commonTagLogic(tag=tag, **kwargs)
+		metadata, reject, tag = self._commonTagLogic("scalars", tag=tag, **kwargs)
 		if reject: return self
 		
 		val = TfValue(tag, simpleValue=float(scalar), metadata=metadata)
@@ -569,7 +569,7 @@ class EventLogger(object):
 			arguments are mandatory. Image is logged encoded as-is
 			"""
 			
-			metadata, reject, tag = self._commonTagLogic(tag=tag+"/image", **kwargs)
+			metadata, reject, tag = self._commonTagLogic("images", tag=tag+"/image", **kwargs)
 			if reject: return self
 			
 			val = TfImage(int(h), int(w), int(csc), images).asValue(tag, metadata)
@@ -601,9 +601,9 @@ class EventLogger(object):
 				# Follow TF naming algorithm for image batches.
 				#
 				if i == 0 and maxOutputs == 1:
-					metadata, reject, tag = self._commonTagLogic(tag=tag+"/image",         **kwargs)
+					metadata, reject, tag = self._commonTagLogic("images", tag=tag+"/image",         **kwargs)
 				else:
-					metadata, reject, tag = self._commonTagLogic(tag=tag+"/image/"+str(i), **kwargs)
+					metadata, reject, tag = self._commonTagLogic("images", tag=tag+"/image/"+str(i), **kwargs)
 				if reject: continue
 				
 				#
@@ -709,9 +709,9 @@ class EventLogger(object):
 			# Follow TF naming algorithm for audio batches.
 			#
 			if i == 0 and maxOutputs == 1:
-				metadata, reject, tag = self._commonTagLogic(tag=tag+"/audio",         **kwargs)
+				metadata, reject, tag = self._commonTagLogic("audio", tag=tag+"/audio",         **kwargs)
 			else:
-				metadata, reject, tag = self._commonTagLogic(tag=tag+"/audio/"+str(i), **kwargs)
+				metadata, reject, tag = self._commonTagLogic("audio", tag=tag+"/audio/"+str(i), **kwargs)
 			if reject: continue
 			
 			#
@@ -757,8 +757,7 @@ class EventLogger(object):
 		Log a tensor of text strings to the "Text" dashboard.
 		"""
 		
-		kwargs["pluginName"] = "text"
-		metadata, reject, tag = self._commonTagLogic(tag=tag, **kwargs)
+		metadata, reject, tag = self._commonTagLogic("text", tag=tag, **kwargs)
 		if reject: return self
 		
 		val      = TfTensor(text).asValue(tag, metadata)
@@ -769,7 +768,7 @@ class EventLogger(object):
 		Log a tensor.
 		"""
 		
-		metadata, reject, tag = self._commonTagLogic(tag=tag, **kwargs)
+		metadata, reject, tag = self._commonTagLogic(None, tag=tag, **kwargs)
 		if reject: return self
 		
 		val      = TfTensor(tensor, dimNames).asValue(tag, metadata)
@@ -780,7 +779,7 @@ class EventLogger(object):
 		Log a histogram.
 		"""
 		
-		metadata, reject, tag = self._commonTagLogic(tag=tag, **kwargs)
+		metadata, reject, tag = self._commonTagLogic("histograms", tag=tag, **kwargs)
 		if reject: return self
 		
 		val = TfHistogram(tensor, bins).asValue(tag, metadata)
